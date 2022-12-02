@@ -52,10 +52,29 @@ def blocks_check(block_list_p, sde_table_p, search_field_p):
             arcpy.AddError(f"Block {error_list[0]} does not exist.\nPlease contact the Blasting Team.")
         else:
             error_string = "The following blocks do not exist:\n\n"
-            for count, error_block in enumerate(error_list):
+            for error_block in error_list:
                 error_string += "\t" + str(error_block) + "\n"
             error_string += "\nPlease contact the Blasting Team."
             arcpy.AddError(error_string)
+
+
+# This function creates the SQL string to select blocks
+# Return the Search String
+def block_search_sql(block_list_p, block_number_p, block_currentstatus_p, blockstatus_status_p):
+    search_string = ""
+    if len(block_list_p) == 1:
+        search_string += f"{block_number_p} = '{block_list_p[0]}'"
+    else:
+        for count, block in enumerate(block_list_p):
+            if count == 0:
+                search_string += f"({block_number_p} = '{block} OR\n"
+            elif count == len(block_list_p)-1:
+                search_string += f"{block_number_p} = '{block})"
+            else:
+                search_string += f"{block_number_p} = '{block} OR\n"
+        search_string += f"\nAND ({block_currentstatus_p} = {blockstatus_status_p})"
+
+    return search_string
 
 
 # TODO: Create string for SQL Function, don't use file
@@ -115,9 +134,6 @@ block_input = arcpy.GetParameter(0)
 sde_block_status_path = os.path.join(block_inventory_sde, "BlockInventory.dbo.BlockStatus")
 sde_block_path = os.path.join(block_inventory_sde, "BlockInventory.dbo.Block")
 
-# TODO: Test printouts
-arc_output(block_input)
-
 # Check whether blocks exist in the Blocks table
 blocks_check(block_list_p=block_input,
              sde_table_p=sde_block_path,
@@ -126,37 +142,11 @@ blocks_check(block_list_p=block_input,
 # Join the BlockStatus and Blocks features
 block_status_and_block = join_features(sde_block_status_path, sde_block_path, "BlockId")
 
-
-# TODO: Create function
-# Create a search clause file
-# Generate Search Query using list
-# First clear the search text file
-with open("searchfile.txt", "w") as file:
-    file.write("")
-
-# Create the search parameters - append to a text file
-with open("searchfile.txt", "a") as file:
-    if len(block_input) > 1:
-        counter = 1
-        file.write(f"(BlockInventory.dbo.Block.Number = '{block_input[0]}' OR ")
-        while counter < len(block_input) - 1:
-            file.write(f"BlockInventory.dbo.Block.Number = '{block_input[counter]}' OR ")
-            counter += 1
-        file.write(f"BlockInventory.dbo.Block.Number = '{block_input[len(block_input) - 1]}')")
-    elif len(block_input) == 1:
-        file.write(f"BlockInventory.dbo.Block.Number = '{block_input[0]}'")
-    file.write(" AND (BlockInventory.dbo.Block.CurrentStatusId = BlockInventory.dbo.BlockStatus.StatusId)")
-
-# Generate the Search Clause for use in Make Feature Layer
-f = open("searchfile.txt", "r")
-if f.mode == "r":
-    search_clause = f.read()
-f.close()
-
-# TODO Test print
-arc_output(search_clause)
-
-
+# Create the search Query which will be used to select blocks from the joined feature layer
+search_query = block_search_sql(block_list_p=block_input,
+                                block_number_p="BlockInventory.dbo.Block.Number",
+                                block_currentstatus_p="BlockInventory.dbo.Block.CurrentStatusId",
+                                blockstatus_status_p="BlockInventory.dbo.BlockStatus.StatusId")
 
 # TODO: Uncomment after testing Dictionaries
 # blocks_to_blast(sde_block_status_p=sde_block_status_path,
