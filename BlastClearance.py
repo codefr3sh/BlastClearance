@@ -20,8 +20,12 @@ def arc_output(message_p):
     arcpy.AddMessage(f"--- {message_p} ---")
 
 
+# TODO: Create string for SQL Function, don't use file
+# TODO: Create function that joins tables - use this function to return the join
+# TODO: Create function that creates a dictionary which will be used to detect whether blocks exist or not.
+
 # This function is used to select the blocks which need to be blasted
-def blocks_to_blast(sde_block_status_p, sde_block_p, search_clause_p):
+def blocks_to_blast(sde_block_status_p, sde_block_p, search_clause_p, scratch_gdb_p, block_spat_ref_p):
     # Join block status and block tables in the BlockInventory Database
     first_join = arcpy.AddJoin_management(sde_block_status_p, "BlockId", sde_block_p, "BlockId", "KEEP_COMMON")
     arc_output("First Join Succesful")
@@ -33,6 +37,10 @@ def blocks_to_blast(sde_block_status_p, sde_block_p, search_clause_p):
 
     # TODO: Finalize layer names
     initial_blocks = arcpy.MakeFeatureLayer_management(first_join, "CHANGELATER", search_clause_p)
+
+    # TODO: Test output of feature class to see whether blocks were selected
+    with arcpy.EnvManager(outputCoordinateSystem=block_spat_ref_p):
+        arcpy.FeatureClassToFeatureClass_conversion(initial_blocks, scratch_gdb_p, "TESTBLOCKS")
 
 
 # Main Program
@@ -73,7 +81,7 @@ arc_output(block_input)
 
 
 # TODO: Create function
-# Create a search clause file  # TODO: Change PushBackPolygon to the relevant term
+# Create a search clause file
 # Generate Search Query using list
 # First clear the search text file
 with open("searchfile.txt", "w") as file:
@@ -83,13 +91,14 @@ with open("searchfile.txt", "w") as file:
 with open("searchfile.txt", "a") as file:
     if len(block_input) > 1:
         counter = 1
-        file.write(f"BlockInventory.dbo.Block.Number = '{block_input[0]}' OR ")
+        file.write(f"(BlockInventory.dbo.Block.Number = '{block_input[0]}' OR ")
         while counter < len(block_input) - 1:
             file.write(f"BlockInventory.dbo.Block.Number = '{block_input[counter]}' OR ")
             counter += 1
-        file.write(f"BlockInventory.dbo.Block.Number = '{block_input[len(block_input) - 1]}'")
+        file.write(f"BlockInventory.dbo.Block.Number = '{block_input[len(block_input) - 1]}')")
     elif len(block_input) == 1:
         file.write(f"BlockInventory.dbo.Block.Number = '{block_input[0]}'")
+    file.write(" AND (BlockInventory.dbo.Block.CurrentStatusId = BlockInventory.dbo.BlockStatus.StatusId)")
 
 # Generate the Search Clause for use in Make Feature Layer
 f = open("searchfile.txt", "r")
@@ -100,7 +109,10 @@ f.close()
 # TODO Test print
 arc_output(search_clause)
 
+# TODO: Uncomment after testing Dictionaries
 blocks_to_blast(sde_block_status_p=sde_block_status_path,
                 sde_block_p=sde_block_path,
-                search_clause_p=search_clause)
+                search_clause_p=search_clause,
+                scratch_gdb_p=scratch_gdb,
+                block_spat_ref_p=block_spat_ref)
 
