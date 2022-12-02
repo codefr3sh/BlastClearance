@@ -3,11 +3,14 @@
 import arcpy
 import os
 
-# TODO: Add functionality for file search
+# TODO: Add functionality for file input (txt file, one block on each line)
 # TODO: CAD Export using Seed File for Symbology
 # TODO: Create symbology layers
 # TODO: Blast ID table
 # TODO: Separate script and tools for when additional features such as misfires or toes must be added
+# TODO: Data management assign blast id to user, blocks, clearance zones
+# TODO: Single feature class to identify clearance zones
+# TODO: Input parameter for clearance zones, default of 300 and 1000
 
 
 # Functions
@@ -101,21 +104,29 @@ def display_fields(table_p):
 
 
 # This function is used to select the blocks which need to be blasted
-def blocks_to_blast(block_feature_p, search_clause_p, scratch_gdb_p, block_spat_ref_p):
+def blocks_to_blast(block_feature_p, search_clause_p):
 
     # TODO: Finalize layer names
     arc_output("Creating Temporary Block Layer")
-    initial_blocks = arcpy.MakeFeatureLayer_management(block_feature_p, "CHANGELATER", search_clause_p)
+    blocks_selection = arcpy.MakeFeatureLayer_management(block_feature_p, "TempBlocks", search_clause_p)
     arc_output("Temporary Block Layer Created")
 
-    # TODO add buffers here
+    return blocks_selection
 
     # TODO: Test output of feature class to see whether blocks were selected
-    arc_output("Creating Block Feature Class")
-    with arcpy.EnvManager(outputCoordinateSystem=block_spat_ref_p):
-        arcpy.FeatureClassToFeatureClass_conversion(initial_blocks, scratch_gdb_p, "TESTBLOCKS")
-    arc_output("Block Feature Class Created")
+    # TODO: Create separate function to create block feature class
+    # arc_output("Creating Block Feature Class")
+    # with arcpy.EnvManager(outputCoordinateSystem=block_spat_ref_p):
+    #     arcpy.FeatureClassToFeatureClass_conversion(blocks_selection, scratch_gdb_p, "TESTBLOCKS")
+    # arc_output("Block Feature Class Created")
 
+
+# This function performs the buffers
+# TODO: add more info
+def find_clearance_zones(spatref_p, blocks_p, scratch_machine_p, scratch_people_p):
+    with arcpy.EnvManager(outputCoordinateSystem=spatref_p):
+        arcpy.Buffer_analysis(blocks_p, scratch_machine_p, "300 Meters", "FULL", "ROUND", "ALL", None, "PLANAR")
+        arcpy.Buffer_analysis(blocks_p, scratch_people_p, "1000 Meters", "FULL", "ROUND", "ALL", None, "PLANAR")
 
 # Main Program
 
@@ -148,6 +159,8 @@ block_input = arcpy.GetParameter(0)
 # Derived Variables
 sde_block_status_path = os.path.join(block_inventory_sde, "BlockInventory.dbo.BlockStatus")
 sde_block_path = os.path.join(block_inventory_sde, "BlockInventory.dbo.Block")
+machine_clear_scratch_fc = os.path.join(scratch_gdb, "TEMP_MACHINE")
+people_clear_scratch_fc = os.path.join(scratch_gdb, "TEMP_PEOPLE")
 
 # Check whether blocks exist in the Blocks table
 blocks_check(block_list_p=block_input,
@@ -165,9 +178,12 @@ search_query = block_search_sql(block_list_p=block_input,
 
 
 # Select Blocks that will be blasted
-blocks_to_blast(block_feature_p=block_status_and_block,
-                search_clause_p=search_query,
-                scratch_gdb_p=scratch_gdb,
-                block_spat_ref_p=block_spat_ref)
+selected_blocks = blocks_to_blast(block_feature_p=block_status_and_block,
+                                  search_clause_p=search_query)
 
-# TODO Buffer FC with attribute for clearance type, e.g. machine & People
+# TODO: Function to create block FC
+
+find_clearance_zones(spatref_p=block_spat_ref,
+                     blocks_p=selected_blocks,
+                     scratch_machine_p=machine_clear_scratch_fc,
+                     scratch_people_p=people_clear_scratch_fc)
