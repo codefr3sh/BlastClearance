@@ -20,15 +20,41 @@ def arc_output(message_p):
     arcpy.AddMessage(f"--- {message_p} ---")
 
 
+# This function is used to join two tabled
+# Return the joined feature layer
+def join_features(table_1, table_2, field_string_p):
+    joined_table = arcpy.AddJoin_management(table_1, field_string_p, table_2, field_string_p, "KEEP_COMMON")
+    arc_output(f"{table_1} and {table_2} joined using {field_string_p}")
+
+    return joined_table
+
+
+# TODO: Add error blocks to list, if list is > 0 ArcError
+# This function is used to check whether the blocks exist in the BlockInventory database
+def blocks_check(block_list_p, sde_joined_table_p):
+    field = ["BlockInventory.dbo.Block.Number"]
+    for block in block_list_p:
+        where_clause = f"BlockInventory.dbo.Block.Number = '{block}'"
+        # TODO: Test printout
+        arc_output(f"{where_clause}")
+        with arcpy.da.SearchCursor(sde_joined_table_p, field, where_clause) as cur:
+            try:
+                cur.next()
+                arc_output("Block Found")
+            except:
+                arcpy.AddError(f"Block {block} not found.\nPlease contact the Blasting Team.")
+
 # TODO: Create string for SQL Function, don't use file
 # TODO: Create function that joins tables - use this function to return the join
 # TODO: Create function that creates a dictionary which will be used to detect whether blocks exist or not.
+
 
 # This function is used to select the blocks which need to be blasted
 def blocks_to_blast(sde_block_status_p, sde_block_p, search_clause_p, scratch_gdb_p, block_spat_ref_p):
     # Join block status and block tables in the BlockInventory Database
     first_join = arcpy.AddJoin_management(sde_block_status_p, "BlockId", sde_block_p, "BlockId", "KEEP_COMMON")
     arc_output("First Join Succesful")
+    first_join = join_features(sde_block_status_p, sde_block_p, "BlockId")
 
     # TODO: Test Print - Print Fields
     join_fields = arcpy.ListFields(first_join)
@@ -109,10 +135,17 @@ f.close()
 # TODO Test print
 arc_output(search_clause)
 
+# Join the BlockStatus and Blocks features
+block_status_and_block = join_features(sde_block_status_path, sde_block_path, "BlockId")
+
+# Check whether blocks exist in the table
+blocks_check(block_list_p=block_input,
+             sde_joined_table_p=block_status_and_block)
+
 # TODO: Uncomment after testing Dictionaries
-blocks_to_blast(sde_block_status_p=sde_block_status_path,
-                sde_block_p=sde_block_path,
-                search_clause_p=search_clause,
-                scratch_gdb_p=scratch_gdb,
-                block_spat_ref_p=block_spat_ref)
+# blocks_to_blast(sde_block_status_p=sde_block_status_path,
+#                 sde_block_p=sde_block_path,
+#                 search_clause_p=search_clause,
+#                 scratch_gdb_p=scratch_gdb,
+#                 block_spat_ref_p=block_spat_ref)
 
