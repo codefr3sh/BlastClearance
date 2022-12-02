@@ -3,7 +3,11 @@
 import arcpy
 import os
 
-# TODO: Error message if block is not found
+# TODO: Add functionality for file search
+# TODO: CAD Export using Seed File for Symbology
+# TODO: Create symbology layers
+# TODO: Blast ID table
+# TODO: Separate script and tools for when additional features such as misfires or toes must be added
 
 
 # Functions
@@ -31,22 +35,31 @@ def join_features(table_1, table_2, field_string_p):
 
 # This function is used to check whether the blocks exist in the BlockInventory database
 def blocks_check(block_list_p, sde_table_p, search_field_p):
+    arc_output("Checking if blocks exist in the Database...")
     # Empty error list to which all non-existent block numbers are added
     error_list = []
-    # TODO: make field a parameter
     field = [search_field_p]
+
+    # Loop through the blocks as provided by the user
     for block in block_list_p:
+        # Search criteria
         where_clause = f"{search_field_p} = '{block}'"
+        # Initiate a Search Cursor
         with arcpy.da.SearchCursor(sde_table_p, field, where_clause) as cur:
+            # Provide output if the block is found in the table
             try:
                 cur.next()
                 arc_output(f"Block {block} Found")
+            # Add block number to the error list if it is not found in the table
             except:
                 error_list.append(block)
                 arc_output(f"Block {block} NOT Found")
+    arc_output("Block Check Completed...")
+    arcpy.AddMessage("\n")
 
     # If there is any data in the error list, arcgis pro must provide the user with an error message
     # containing the block numbers which must be checked.
+    # TODO: Try / Except / Custom Error
     if len(error_list) > 0:
         if len(error_list) == 1:
             arcpy.AddError(f"Block {error_list[0]} does not exist.\nPlease contact the Blasting Team.")
@@ -56,6 +69,7 @@ def blocks_check(block_list_p, sde_table_p, search_field_p):
                 error_string += "\t" + str(error_block) + "\n"
             error_string += "\nPlease contact the Blasting Team."
             arcpy.AddError(error_string)
+        quit()
 
 
 # This function creates the SQL string to select blocks
@@ -67,12 +81,12 @@ def block_search_sql(block_list_p, block_number_p, block_currentstatus_p, blocks
     else:
         for count, block in enumerate(block_list_p):
             if count == 0:
-                search_string += f"({block_number_p} = '{block} OR\n"
+                search_string += f"({block_number_p} = '{block}' OR "
             elif count == len(block_list_p)-1:
-                search_string += f"{block_number_p} = '{block})"
+                search_string += f"{block_number_p} = '{block}')"
             else:
-                search_string += f"{block_number_p} = '{block} OR\n"
-        search_string += f"\nAND ({block_currentstatus_p} = {blockstatus_status_p})"
+                search_string += f"{block_number_p} = '{block}' OR "
+        search_string += f" AND ({block_currentstatus_p} = {blockstatus_status_p})"
 
     return search_string
 
@@ -83,19 +97,15 @@ def block_search_sql(block_list_p, block_number_p, block_currentstatus_p, blocks
 
 
 # This function is used to select the blocks which need to be blasted
-def blocks_to_blast(sde_block_status_p, sde_block_p, search_clause_p, scratch_gdb_p, block_spat_ref_p):
-    # Join block status and block tables in the BlockInventory Database
-    first_join = arcpy.AddJoin_management(sde_block_status_p, "BlockId", sde_block_p, "BlockId", "KEEP_COMMON")
-    arc_output("First Join Succesful")
-    first_join = join_features(sde_block_status_p, sde_block_p, "BlockId")
+def blocks_to_blast(block_feature_p, search_clause_p, scratch_gdb_p, block_spat_ref_p):
 
-    # TODO: Test Print - Print Fields
-    join_fields = arcpy.ListFields(first_join)
+    # TODO: Create field list function which can be used during testing
+    join_fields = arcpy.ListFields(block_feature_p)
     for field in join_fields:
         arc_output(field.name)
 
     # TODO: Finalize layer names
-    initial_blocks = arcpy.MakeFeatureLayer_management(first_join, "CHANGELATER", search_clause_p)
+    initial_blocks = arcpy.MakeFeatureLayer_management(block_feature_p, "CHANGELATER", search_clause_p)
 
     # TODO: Test output of feature class to see whether blocks were selected
     with arcpy.EnvManager(outputCoordinateSystem=block_spat_ref_p):
@@ -148,10 +158,10 @@ search_query = block_search_sql(block_list_p=block_input,
                                 block_currentstatus_p="BlockInventory.dbo.Block.CurrentStatusId",
                                 blockstatus_status_p="BlockInventory.dbo.BlockStatus.StatusId")
 
-# TODO: Uncomment after testing Dictionaries
-# blocks_to_blast(sde_block_status_p=sde_block_status_path,
-#                 sde_block_p=sde_block_path,
-#                 search_clause_p=search_clause,
-#                 scratch_gdb_p=scratch_gdb,
-#                 block_spat_ref_p=block_spat_ref)
+# Select Blocks that will be blasted
+blocks_to_blast(block_feature_p=block_status_and_block,
+                search_clause_p=search_query,
+                scratch_gdb_p=scratch_gdb,
+                block_spat_ref_p=block_spat_ref)
 
+# TODO Buffer FC with attribute for clerance type, e.g. machine & People
