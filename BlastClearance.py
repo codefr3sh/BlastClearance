@@ -28,7 +28,7 @@ def arc_output(message_p):
 # Return the joined feature layer
 def join_features(table_1, table_2, field_string_p):
     joined_table = arcpy.AddJoin_management(table_1, field_string_p, table_2, field_string_p, "KEEP_COMMON")
-    arc_output(f"{table_1} and {table_2} joined using {field_string_p}")
+    arc_output(f"{table_1.split('dbo.')[-1]} and {table_2.split('dbo.')[-1]} Tables joined using {field_string_p}")
 
     return joined_table
 
@@ -55,7 +55,6 @@ def blocks_check(block_list_p, sde_table_p, search_field_p):
                 error_list.append(block)
                 arc_output(f"Block {block} NOT Found")
     arc_output("Block Check Completed...")
-    arcpy.AddMessage("\n")
 
     # If there is any data in the error list, arcgis pro must provide the user with an error message
     # containing the block numbers which must be checked.
@@ -91,25 +90,31 @@ def block_search_sql(block_list_p, block_number_p, block_currentstatus_p, blocks
     return search_string
 
 
-# TODO: Create string for SQL Function, don't use file
-# TODO: Create function that joins tables - use this function to return the join
-# TODO: Create function that creates a dictionary which will be used to detect whether blocks exist or not.
+# This function is used to display fields within the selected table
+# This is useful for testing and troubleshooting purposes
+def display_fields(table_p):
+    arcpy.AddMessage(f"Fields in table {table_p}:")
+    join_fields = arcpy.ListFields(table_p)
+    for field in join_fields:
+        arcpy.AddMessage(field.name)
+    arc_output("Field Display Complete")
 
 
 # This function is used to select the blocks which need to be blasted
 def blocks_to_blast(block_feature_p, search_clause_p, scratch_gdb_p, block_spat_ref_p):
 
-    # TODO: Create field list function which can be used during testing
-    join_fields = arcpy.ListFields(block_feature_p)
-    for field in join_fields:
-        arc_output(field.name)
-
     # TODO: Finalize layer names
+    arc_output("Creating Temporary Block Layer")
     initial_blocks = arcpy.MakeFeatureLayer_management(block_feature_p, "CHANGELATER", search_clause_p)
+    arc_output("Temporary Block Layer Created")
+
+    # TODO add buffers here
 
     # TODO: Test output of feature class to see whether blocks were selected
+    arc_output("Creating Block Feature Class")
     with arcpy.EnvManager(outputCoordinateSystem=block_spat_ref_p):
         arcpy.FeatureClassToFeatureClass_conversion(initial_blocks, scratch_gdb_p, "TESTBLOCKS")
+    arc_output("Block Feature Class Created")
 
 
 # Main Program
@@ -158,10 +163,11 @@ search_query = block_search_sql(block_list_p=block_input,
                                 block_currentstatus_p="BlockInventory.dbo.Block.CurrentStatusId",
                                 blockstatus_status_p="BlockInventory.dbo.BlockStatus.StatusId")
 
+
 # Select Blocks that will be blasted
 blocks_to_blast(block_feature_p=block_status_and_block,
                 search_clause_p=search_query,
                 scratch_gdb_p=scratch_gdb,
                 block_spat_ref_p=block_spat_ref)
 
-# TODO Buffer FC with attribute for clerance type, e.g. machine & People
+# TODO Buffer FC with attribute for clearance type, e.g. machine & People
