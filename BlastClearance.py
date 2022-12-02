@@ -29,20 +29,34 @@ def join_features(table_1, table_2, field_string_p):
     return joined_table
 
 
-# TODO: Add error blocks to list, if list is > 0 ArcError
 # This function is used to check whether the blocks exist in the BlockInventory database
-def blocks_check(block_list_p, sde_joined_table_p):
-    field = ["BlockInventory.dbo.Block.Number"]
+def blocks_check(block_list_p, sde_table_p, search_field_p):
+    # Empty error list to which all non-existent block numbers are added
+    error_list = []
+    # TODO: make field a parameter
+    field = [search_field_p]
     for block in block_list_p:
-        where_clause = f"BlockInventory.dbo.Block.Number = '{block}'"
-        # TODO: Test printout
-        arc_output(f"{where_clause}")
-        with arcpy.da.SearchCursor(sde_joined_table_p, field, where_clause) as cur:
+        where_clause = f"{search_field_p} = '{block}'"
+        with arcpy.da.SearchCursor(sde_table_p, field, where_clause) as cur:
             try:
                 cur.next()
-                arc_output("Block Found")
+                arc_output(f"Block {block} Found")
             except:
-                arcpy.AddError(f"Block {block} not found.\nPlease contact the Blasting Team.")
+                error_list.append(block)
+                arc_output(f"Block {block} NOT Found")
+
+    # If there is any data in the error list, arcgis pro must provide the user with an error message
+    # containing the block numbers which must be checked.
+    if len(error_list) > 0:
+        if len(error_list) == 1:
+            arcpy.AddError(f"Block {error_list[0]} does not exist.\nPlease contact the Blasting Team.")
+        else:
+            error_string = "The following blocks do not exist:\n\n"
+            for count, error_block in enumerate(error_list):
+                error_string += "\t" + str(error_block) + "\n"
+            error_string += "\nPlease contact the Blasting Team."
+            arcpy.AddError(error_string)
+
 
 # TODO: Create string for SQL Function, don't use file
 # TODO: Create function that joins tables - use this function to return the join
@@ -72,9 +86,8 @@ def blocks_to_blast(sde_block_status_p, sde_block_p, search_clause_p, scratch_gd
 # Main Program
 
 # Workspace Variables
-# TODO: Uncomment once testing is done
-# workspace = new_path()
-workspace = r"S:\Mining\MRM\SURVEY\DME\NEWGME\ARC\TRIAL_PROJECTS\BlastClearance"
+workspace = new_path()
+# workspace = r"S:\Mining\MRM\SURVEY\DME\NEWGME\ARC\TRIAL_PROJECTS\BlastClearance"
 arcpy.env.workspace = workspace
 arcpy.env.overwriteOutput = True  # TODO: Change to False after testing
 working_gdb = os.path.join(workspace, 'BlastClearance.gdb')
@@ -104,6 +117,14 @@ sde_block_path = os.path.join(block_inventory_sde, "BlockInventory.dbo.Block")
 
 # TODO: Test printouts
 arc_output(block_input)
+
+# Check whether blocks exist in the Blocks table
+blocks_check(block_list_p=block_input,
+             sde_table_p=sde_block_path,
+             search_field_p="Number")
+
+# Join the BlockStatus and Blocks features
+block_status_and_block = join_features(sde_block_status_path, sde_block_path, "BlockId")
 
 
 # TODO: Create function
@@ -135,12 +156,7 @@ f.close()
 # TODO Test print
 arc_output(search_clause)
 
-# Join the BlockStatus and Blocks features
-block_status_and_block = join_features(sde_block_status_path, sde_block_path, "BlockId")
 
-# Check whether blocks exist in the table
-blocks_check(block_list_p=block_input,
-             sde_joined_table_p=block_status_and_block)
 
 # TODO: Uncomment after testing Dictionaries
 # blocks_to_blast(sde_block_status_p=sde_block_status_path,
