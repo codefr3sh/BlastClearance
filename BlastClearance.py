@@ -16,7 +16,6 @@ from datetime import datetime
 #       Level join to ElevationDatum using "ElevationDatumId"
 #       ElevationDatum - use field "Name"
 # TODO: CAD Export using Seed File for Symbology
-# TODO: Blast ID table
 # TODO: Separate script and tools for when additional features such as misfires or toes must be added
 # TODO: Data management assign blast id to user, blocks, clearance zones
 # TODO: Single feature class to identify clearance zones
@@ -26,6 +25,7 @@ from datetime import datetime
 # TODO: Master DGN file per Mining Zone for reference purposes
 # TODO: Delete Scratch features
 # TODO: Static seed file location
+# TODO: Test blast clearance ID as hosted table
 
 
 # Functions
@@ -132,7 +132,6 @@ def blocks_to_blast(block_feature_p, search_clause_p):
 # TODO: Append temp features to the master features and delete temp features
 def find_clearance_zones(spatref_p, blocks_p, scratch_machine_p, scratch_people_p, scratch_gdb_p, machine_rad_p,
                          people_rad_p):
-    # TODO: use parameters for buffer values
     with arcpy.EnvManager(outputCoordinateSystem=spatref_p):
         # Create the two temporary buffer features
         arc_output("Creating Machine Clearance Buffer")
@@ -211,6 +210,24 @@ def data_management(blocks_p, machine_p, people_p, date_sql_p, mine_p):
     # Calculate Fields in separate features (CAD Levels used for Exports)
 
 
+# This features adds a row to the SishenBlasts table to generate a BlastID
+def get_blast_id(blast_table_p, mine_p, date_p):
+    # Insert a new row to the SishenBlasts Table
+    # The Mine as well as Date and time is added
+    # BlastClearId is automatically set equal to ObjectId by using an attribute rule
+    # TODO: Test to see if attribute rules work on other user's PCs as well
+    with arcpy.da.InsertCursor(blast_table_p, ['Mine', 'DateTime']) as cur:
+        cur.insertRow([mine_p, date_p])
+
+    # Return the latest BlastClearId and provide output to the user
+    # This ID is used to identify different blast clearance plans
+    where_clause = "DateTime = timestamp " + "'" + date_p + "'"
+    with arcpy.da.SearchCursor(blast_table_p, ['DateTime', 'BlastClearId'], where_clause) as cur:
+        for row in cur:
+            arc_output(f"Blast Clearance ID >>> {row[1]} <<< assigned")
+            return str(row[1])
+
+
 # Main Program
 
 # Workspace Variables
@@ -223,7 +240,8 @@ scratch_gdb = os.path.join(workspace, 'scratch.gdb')
 archive_gdb = os.path.join(workspace, 'Archive.gdb')
 block_inventory_sde = r"S:\Mining\MRM\SURVEY\DME\NEWGME\ARC\SDE_CONNECTIONS\BlockInventory.sde"
 date_string = datetime.today().strftime('%Y%m%d%H%M%S')
-arc_date_string = datetime.today().strftime('%m/%d/%Y %H:%M:%S %p')
+arc_date_string = datetime.today().strftime('%m/%d/%Y %I:%M:%S %p')
+query_date_string = datetime.today().strftime("%Y-%m-%d %H:%M:%S")
 arc_sql_date = "'" + arc_date_string + "'"
 
 # Spatial Reference Variable
@@ -250,35 +268,44 @@ sde_block_status_path = os.path.join(block_inventory_sde, "BlockInventory.dbo.Bl
 sde_block_path = os.path.join(block_inventory_sde, "BlockInventory.dbo.Block")
 machine_clear_scratch_fc = os.path.join(scratch_gdb, "TEMP_MACHINE")
 people_clear_scratch_fc = os.path.join(scratch_gdb, "TEMP_PEOPLE")
+sis_blasts_table = os.path.join(working_gdb, "SishenBlasts")
 
-# Check whether blocks exist in the Blocks table
-blocks_check(block_list_p=block_input,
-             sde_table_p=sde_block_path,
-             search_field_p="Number")
+curent_blast_id = get_blast_id(blast_table_p=sis_blasts_table,
+                               mine_p=mine_input,
+                               date_p=query_date_string)
 
-# Join the BlockStatus and Blocks features
-block_status_and_block = join_features(sde_block_status_path, sde_block_path, "BlockId")
+# # Check whether blocks exist in the Blocks table
+# blocks_check(block_list_p=block_input,
+#              sde_table_p=sde_block_path,
+#              search_field_p="Number")
+#
+# # Join the BlockStatus and Blocks features
+# block_status_and_block = join_features(sde_block_status_path, sde_block_path, "BlockId")
+#
+# # Create the search Query which will be used to select blocks from the joined feature layer
+# search_query = block_search_sql(block_list_p=block_input,
+#                                 block_number_p="BlockInventory.dbo.Block.Number",
+#                                 block_currentstatus_p="BlockInventory.dbo.Block.CurrentStatusId",
+#                                 blockstatus_status_p="BlockInventory.dbo.BlockStatus.StatusId")
+#
+# # Select Blocks that will be blasted
+# selected_blocks = blocks_to_blast(block_feature_p=block_status_and_block,
+#                                   search_clause_p=search_query)
+#
+# get_blast_id(blast_table_p=sis_blasts_table,
+#              mine_p=mine_input,
+#              date_p=arc_sql_date)
 
-# Create the search Query which will be used to select blocks from the joined feature layer
-search_query = block_search_sql(block_list_p=block_input,
-                                block_number_p="BlockInventory.dbo.Block.Number",
-                                block_currentstatus_p="BlockInventory.dbo.Block.CurrentStatusId",
-                                blockstatus_status_p="BlockInventory.dbo.BlockStatus.StatusId")
-
-# Select Blocks that will be blasted
-selected_blocks = blocks_to_blast(block_feature_p=block_status_and_block,
-                                  search_clause_p=search_query)
-
-machine_buff, people_buff, block_selection = find_clearance_zones(spatref_p=block_spat_ref,
-                                                                  blocks_p=selected_blocks,
-                                                                  scratch_machine_p=machine_clear_scratch_fc,
-                                                                  scratch_people_p=people_clear_scratch_fc,
-                                                                  scratch_gdb_p=scratch_gdb,
-                                                                  machine_rad_p=machine_radius_input,
-                                                                  people_rad_p=people_radius_input)
-
-data_management(blocks_p=block_selection,
-                machine_p=machine_buff,
-                people_p=people_buff,
-                date_sql_p=arc_sql_date,
-                mine_p=mine_input)
+# machine_buff, people_buff, block_selection = find_clearance_zones(spatref_p=block_spat_ref,
+#                                                                   blocks_p=selected_blocks,
+#                                                                   scratch_machine_p=machine_clear_scratch_fc,
+#                                                                   scratch_people_p=people_clear_scratch_fc,
+#                                                                   scratch_gdb_p=scratch_gdb,
+#                                                                   machine_rad_p=machine_radius_input,
+#                                                                   people_rad_p=people_radius_input)
+#
+# data_management(blocks_p=block_selection,
+#                 machine_p=machine_buff,
+#                 people_p=people_buff,
+#                 date_sql_p=arc_sql_date,
+#                 mine_p=mine_input)
