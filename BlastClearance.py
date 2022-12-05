@@ -8,8 +8,6 @@ from datetime import datetime
 # TODO: Add functionality for file input (txt file, one block on each line)
 # TODO: Choose whether file or list input is used
 # TODO: Sanitize inputs (remove "/" if any)
-# TODO: Create symbology layers
-# TODO: Assign layer symbology to feature class, if possible.
 # TODO: Each user has own Project file, hardcode master geodatabase, investigate feature service later on
 # TODO: Identify mining area (North / South/ Lylyveld south):
 #       Block join to Level using "LevelId"
@@ -17,14 +15,10 @@ from datetime import datetime
 #       ElevationDatum - use field "Name"
 # TODO: CAD Export using Seed File for Symbology
 # TODO: Separate script and tools for when additional features such as misfires or toes must be added
-# TODO: Data management assign blast id to user, blocks, clearance zones
-# TODO: Single feature class to identify clearance zones
 # TODO: Export cad file to relevant folder, e.g. blast > YYYY > X_MMM > YYYYMMDDHHMMSS_USER
 #       Check if folder exists, f not, create it
 # TODO: Add Blast ID to folder name
-# TODO: Master DGN file per Mining Zone for reference purposes
 # TODO: Delete Scratch features
-# TODO: Static seed file location
 # TODO: Test blast clearance ID as hosted table
 
 
@@ -161,14 +155,6 @@ def find_clearance_zones(spatref_p, blocks_p, scratch_machine_p, scratch_people_
 
         return temp_machine_buff, temp_people_buff, temp_block_selection
 
-        # TODO: uncomment once function is finished
-        # Delete the temporary features
-        # arc_output("Deleting Temporary Features")
-        # arcpy.Delete_management(temp_machine_buff)
-        # arcpy.Delete_management(temp_people_buff)
-        # arcpy.Delete_management(temp_block_selection)
-        # arc_output("Temporary Features Deleted")
-
 
 # This function is used for data management purposes
 # TODO: Elaborate
@@ -244,7 +230,11 @@ workspace = new_path()
 # workspace = r"S:\Mining\MRM\SURVEY\DME\NEWGME\ARC\TRIAL_PROJECTS\BlastClearance"
 arcpy.env.workspace = workspace
 arcpy.env.overwriteOutput = True  # TODO: Change to False after testing
-working_gdb = os.path.join(workspace, 'BlastClearance.gdb')
+blast_clearance_directory = r"S:\Mining\MRM\SURVEY\DME\NEWGME\Blasting Notification\BlastClearancePro"
+database_dir = os.path.join(blast_clearance_directory, "Databases")
+resources_dir = os.path.join(blast_clearance_directory, "Resources")
+cad_output_base_dir = os.path.join(blast_clearance_directory, "CAD_Output")
+working_gdb = os.path.join(database_dir, 'BlastClearance.gdb')
 scratch_gdb = os.path.join(workspace, 'scratch.gdb')
 archive_gdb = os.path.join(workspace, 'Archive.gdb')
 block_inventory_sde = r"S:\Mining\MRM\SURVEY\DME\NEWGME\ARC\SDE_CONNECTIONS\BlockInventory.sde"
