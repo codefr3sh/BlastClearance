@@ -147,12 +147,13 @@ def find_clearance_zones(spatref_p, blocks_p, scratch_machine_p, scratch_people_
         # TODO: Data management Code
         # TODO: Export to CAD Code
 
+        # TODO: uncomment once function is finished
         # Delete the temporary features
-        arc_output("Deleting Temporary Features")
-        arcpy.Delete_management(temp_machine_buff)
-        arcpy.Delete_management(temp_people_buff)
-        arcpy.Delete_management(temp_block_selection)
-        arc_output("Temporary Features Deleted")
+        # arc_output("Deleting Temporary Features")
+        # arcpy.Delete_management(temp_machine_buff)
+        # arcpy.Delete_management(temp_people_buff)
+        # arcpy.Delete_management(temp_block_selection)
+        # arc_output("Temporary Features Deleted")
 
 
 # Main Program
