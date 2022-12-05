@@ -3,6 +3,7 @@
 import arcpy
 import os
 
+
 # TODO: Add functionality for file input (txt file, one block on each line)
 # TODO: Choose whether file or list input is used
 # TODO: Sanitize inputs (remove "/" if any)
@@ -18,7 +19,9 @@ import os
 # TODO: Separate script and tools for when additional features such as misfires or toes must be added
 # TODO: Data management assign blast id to user, blocks, clearance zones
 # TODO: Single feature class to identify clearance zones
-# TODO: Input parameter for clearance zones, default of 300 and 1000
+# TODO: Export cad file to relevant folder, e.g. blast > YYYY > X_MMM > YYYYMMDDHHMMSS_USER
+#       Check if folder exists, f not, create it
+# TODO: Add Blast ID to folder name
 
 
 # Functions
@@ -92,7 +95,7 @@ def block_search_sql(block_list_p, block_number_p, block_currentstatus_p, blocks
         for count, block in enumerate(block_list_p):
             if count == 0:
                 search_string += f"({block_number_p} = '{block}' OR "
-            elif count == len(block_list_p)-1:
+            elif count == len(block_list_p) - 1:
                 search_string += f"{block_number_p} = '{block}')"
             else:
                 search_string += f"{block_number_p} = '{block}' OR "
@@ -113,7 +116,6 @@ def display_fields(table_p):
 
 # This function is used to select the blocks which need to be blasted
 def blocks_to_blast(block_feature_p, search_clause_p):
-
     # TODO: Finalize layer names
     arc_output("Creating Temporary Block Layer")
     blocks_selection = arcpy.MakeFeatureLayer_management(block_feature_p, "TempBlocks", search_clause_p)
@@ -121,20 +123,36 @@ def blocks_to_blast(block_feature_p, search_clause_p):
 
     return blocks_selection
 
-    # TODO: Test output of feature class to see whether blocks were selected
-    # TODO: Create separate function to create block feature class
-    # arc_output("Creating Block Feature Class")
-    # with arcpy.EnvManager(outputCoordinateSystem=block_spat_ref_p):
-    #     arcpy.FeatureClassToFeatureClass_conversion(blocks_selection, scratch_gdb_p, "TESTBLOCKS")
-    # arc_output("Block Feature Class Created")
 
-
-# This function performs the buffers
-# TODO: add more info
-def find_clearance_zones(spatref_p, blocks_p, scratch_machine_p, scratch_people_p):
+# This function creates the temporary blocks feature class and generates the machine and people clearance zones
+# TODO: Append temp features to the master features and delete temp features
+def find_clearance_zones(spatref_p, blocks_p, scratch_machine_p, scratch_people_p, scratch_gdb_p, machine_rad_p,
+                         people_rad_p):
+    # TODO: use parameters for buffer values
     with arcpy.EnvManager(outputCoordinateSystem=spatref_p):
-        arcpy.Buffer_analysis(blocks_p, scratch_machine_p, "300 Meters", "FULL", "ROUND", "ALL", None, "PLANAR")
-        arcpy.Buffer_analysis(blocks_p, scratch_people_p, "1000 Meters", "FULL", "ROUND", "ALL", None, "PLANAR")
+        # Create the two temporary buffer features
+        arc_output("Creating Machine Clearance Buffer")
+        temp_machine_buff = arcpy.Buffer_analysis(blocks_p, scratch_machine_p, f"{machine_rad_p} Meters", "FULL",
+                                                  "ROUND", "ALL", None, "PLANAR")
+        arc_output("Machine Clearance Buffer Created")
+        arc_output("Creating People Clearance Buffer")
+        temp_people_buff = arcpy.Buffer_analysis(blocks_p, scratch_people_p, f"{people_rad_p} Meters", "FULL", "ROUND",
+                                                 "ALL", None, "PLANAR")
+        arc_output("People Clearance Buffer Created")
+        # Create the temporary block feature
+        arc_output("Creating Temporary Block Feature")
+        temp_block_selection = arcpy.FeatureClassToFeatureClass_conversion(blocks_p, scratch_gdb_p, "TESTBLOCKS")
+        arc_output("Temporary Block Feature Created")
+
+        # TODO: Data management Code
+        # TODO: Export to CAD Code
+
+        # Delete the temporary features
+        arc_output("Deleting Temporary Features")
+        arcpy.Delete_management(temp_machine_buff)
+        arcpy.Delete_management(temp_people_buff)
+        arcpy.Delete_management(temp_block_selection)
+        arc_output("Temporary Features Deleted")
 
 
 # Main Program
@@ -164,6 +182,8 @@ block_spat_ref = "PROJCS['Cape_Lo23_Sishen_Blocks',GEOGCS['GCS_Cape',DATUM['D_Ca
 
 # User Input Parameters
 block_input = arcpy.GetParameter(0)
+machine_radius_input = arcpy.GetParameterAsText(1)
+people_radius_input = arcpy.GetParameterAsText(2)
 
 # Derived Variables
 sde_block_status_path = os.path.join(block_inventory_sde, "BlockInventory.dbo.BlockStatus")
@@ -185,14 +205,14 @@ search_query = block_search_sql(block_list_p=block_input,
                                 block_currentstatus_p="BlockInventory.dbo.Block.CurrentStatusId",
                                 blockstatus_status_p="BlockInventory.dbo.BlockStatus.StatusId")
 
-
 # Select Blocks that will be blasted
 selected_blocks = blocks_to_blast(block_feature_p=block_status_and_block,
                                   search_clause_p=search_query)
 
-# TODO: Function to create block FC
-
 find_clearance_zones(spatref_p=block_spat_ref,
                      blocks_p=selected_blocks,
                      scratch_machine_p=machine_clear_scratch_fc,
-                     scratch_people_p=people_clear_scratch_fc)
+                     scratch_people_p=people_clear_scratch_fc,
+                     scratch_gdb_p=scratch_gdb,
+                     machine_rad_p=machine_radius_input,
+                     people_rad_p=people_radius_input)
