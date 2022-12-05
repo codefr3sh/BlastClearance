@@ -4,6 +4,14 @@ import arcpy
 import os
 
 # TODO: Add functionality for file input (txt file, one block on each line)
+# TODO: Choose whether file or list input is used
+# TODO: Sanitize inputs (remove "/" if any)
+# TODO: Assign layer symbology to feature class, if possible.
+# TODO: Each user has own Project file, hardcode master geodatabase, investigate feature service later on
+# TODO: Identify mining area (North / South/ Lylyveld south):
+#       Block join to Level using "LevelId"
+#       Level join to ElevationDatum using "ElevationDatumId"
+#       ElevationDatum - use field "Name"
 # TODO: CAD Export using Seed File for Symbology
 # TODO: Create symbology layers
 # TODO: Blast ID table
@@ -127,6 +135,7 @@ def find_clearance_zones(spatref_p, blocks_p, scratch_machine_p, scratch_people_
     with arcpy.EnvManager(outputCoordinateSystem=spatref_p):
         arcpy.Buffer_analysis(blocks_p, scratch_machine_p, "300 Meters", "FULL", "ROUND", "ALL", None, "PLANAR")
         arcpy.Buffer_analysis(blocks_p, scratch_people_p, "1000 Meters", "FULL", "ROUND", "ALL", None, "PLANAR")
+
 
 # Main Program
 
