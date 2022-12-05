@@ -131,15 +131,15 @@ def blocks_to_blast(block_feature_p, search_clause_p):
 # This function creates the temporary blocks feature class and generates the machine and people clearance zones
 # TODO: Append temp features to the master features and delete temp features
 def find_clearance_zones(spatref_p, blocks_p, scratch_machine_p, scratch_people_p, scratch_gdb_p, machine_rad_p,
-                         people_rad_p):
+                         people_rad_p, machine_single_p, people_single_p):
     with arcpy.EnvManager(outputCoordinateSystem=spatref_p):
         # Create the two temporary buffer features
         arc_output("Creating Machine Clearance Buffer")
-        temp_machine_buff = arcpy.Buffer_analysis(blocks_p, scratch_machine_p, f"{machine_rad_p} Meters", "FULL",
+        temp_machine_buff_multi = arcpy.Buffer_analysis(blocks_p, scratch_machine_p, f"{machine_rad_p} Meters", "FULL",
                                                   "ROUND", "ALL", None, "PLANAR")
         arc_output("Machine Clearance Buffer Created")
         arc_output("Creating People Clearance Buffer")
-        temp_people_buff = arcpy.Buffer_analysis(blocks_p, scratch_people_p, f"{people_rad_p} Meters", "FULL", "ROUND",
+        temp_people_buff_multi = arcpy.Buffer_analysis(blocks_p, scratch_people_p, f"{people_rad_p} Meters", "FULL", "ROUND",
                                                  "ALL", None, "PLANAR")
         arc_output("People Clearance Buffer Created")
         # Create the temporary block feature
@@ -147,10 +147,19 @@ def find_clearance_zones(spatref_p, blocks_p, scratch_machine_p, scratch_people_
         temp_block_selection = arcpy.FeatureClassToFeatureClass_conversion(blocks_p, scratch_gdb_p, "TEMP_BLOCKS")
         arc_output("Temporary Block Feature Created")
 
-        return temp_machine_buff, temp_people_buff, temp_block_selection
+        # Drop Polygons to Single Part Features
+        arc_output("Drop to Single Part - Initializing")
+        temp_machine_buff = arcpy.MultipartToSinglepart_management(scratch_machine_p, machine_single_p)
+        temp_people_buff = arcpy.MultipartToSinglepart_management(scratch_people_p, people_single_p)
+        arc_output("Drop to Single Part - Completed")
 
-        # TODO: Data management Code
-        # TODO: Export to CAD Code
+        # Delete Multipart Features
+        arc_output("Deleting Multipart Features")
+        arcpy.Delete_management(temp_people_buff_multi)
+        arcpy.Delete_management(temp_machine_buff_multi)
+        arc_output("Multipart Features Deleted")
+
+        return temp_machine_buff, temp_people_buff, temp_block_selection
 
         # TODO: uncomment once function is finished
         # Delete the temporary features
@@ -163,7 +172,7 @@ def find_clearance_zones(spatref_p, blocks_p, scratch_machine_p, scratch_people_
 
 # This function is used for data management purposes
 # TODO: Elaborate
-def data_management(blocks_p, machine_p, people_p, date_sql_p, mine_p):
+def data_management(blocks_p, machine_p, people_p, date_sql_p, mine_p, blast_clear_id_p):
     # Create lists to enable iteration for adding and calculating fields
     clearance_list = [machine_p, people_p]
     feature_list = [blocks_p, machine_p, people_p]
@@ -194,17 +203,17 @@ def data_management(blocks_p, machine_p, people_p, date_sql_p, mine_p):
             arcpy.CalculateField_management(feature, "Level", "'500'", "PYTHON3")
             arc_output(f"{feature_name} Level Calculated")
         elif feature == machine_p:
-            # arcpy.CalculateField_management(feature, "Level", "'501'", "PYTHON3")
             arcpy.CalculateFields_management(feature, "PYTHON3", [["Level", "'501'"], ["ClearanceType", "'Machine'"]])
             arc_output(f"{feature_name} Level & ClearanceType Calculated")
         elif feature == people_p:
-            # arcpy.CalculateField_management(feature, "Level", "'502'", "PYTHON3")
             arcpy.CalculateFields_management(feature, "PYTHON3", [["Level", "'502'"], ["ClearanceType", "'People'"]])
             arc_output(f"{feature_name} Level & ClearanceType Calculated")
         arcpy.CalculateField_management(feature, "DateTime", date_sql_p, "PYTHON3")
         arc_output(f"{feature_name} DateTime Calculated")
         arcpy.CalculateField_management(feature, "Mine", "'" + mine_p + "'", "PYTHON3")
         arc_output(f"{feature_name} Mine Calculated")
+        arcpy.CalculateField_management(feature, "BlastClearId", "'" + blast_clear_id_p + "'", "PYTHON3")
+        arc_output(f"{feature_name} BlastClearId Calculated")
     arc_output(f"Fields Calculated")
 
     # Calculate Fields in separate features (CAD Levels used for Exports)
@@ -222,10 +231,10 @@ def get_blast_id(blast_table_p, mine_p, date_p):
     # Return the latest BlastClearId and provide output to the user
     # This ID is used to identify different blast clearance plans
     where_clause = "DateTime = timestamp " + "'" + date_p + "'"
-    with arcpy.da.SearchCursor(blast_table_p, ['DateTime', 'BlastClearId'], where_clause) as cur:
+    with arcpy.da.SearchCursor(blast_table_p, ['DateTime', 'BlastClearId', 'created_user'], where_clause) as cur:
         for row in cur:
-            arc_output(f"Blast Clearance ID >>> {row[1]} <<< assigned")
-            return str(row[1])
+            arc_output(f"Blast Clearance ID >>> {row[1]} <<< assigned to user >>> {row[2]} <<<")
+            return str(row[1]), str(row[2])
 
 
 # Main Program
@@ -267,45 +276,49 @@ mine_input = arcpy.GetParameterAsText(3)
 sde_block_status_path = os.path.join(block_inventory_sde, "BlockInventory.dbo.BlockStatus")
 sde_block_path = os.path.join(block_inventory_sde, "BlockInventory.dbo.Block")
 machine_clear_scratch_fc = os.path.join(scratch_gdb, "TEMP_MACHINE")
+machine_clear_single_scratch_fc = os.path.join(scratch_gdb, "TEMP_MACHINE_SINGLE")
 people_clear_scratch_fc = os.path.join(scratch_gdb, "TEMP_PEOPLE")
+people_clear__single_scratch_fc = os.path.join(scratch_gdb, "TEMP_PEOPLE_SINGLE")
 sis_blasts_table = os.path.join(working_gdb, "SishenBlasts")
 
-curent_blast_id = get_blast_id(blast_table_p=sis_blasts_table,
-                               mine_p=mine_input,
-                               date_p=query_date_string)
 
-# # Check whether blocks exist in the Blocks table
-# blocks_check(block_list_p=block_input,
-#              sde_table_p=sde_block_path,
-#              search_field_p="Number")
-#
-# # Join the BlockStatus and Blocks features
-# block_status_and_block = join_features(sde_block_status_path, sde_block_path, "BlockId")
-#
-# # Create the search Query which will be used to select blocks from the joined feature layer
-# search_query = block_search_sql(block_list_p=block_input,
-#                                 block_number_p="BlockInventory.dbo.Block.Number",
-#                                 block_currentstatus_p="BlockInventory.dbo.Block.CurrentStatusId",
-#                                 blockstatus_status_p="BlockInventory.dbo.BlockStatus.StatusId")
-#
-# # Select Blocks that will be blasted
-# selected_blocks = blocks_to_blast(block_feature_p=block_status_and_block,
-#                                   search_clause_p=search_query)
-#
-# get_blast_id(blast_table_p=sis_blasts_table,
-#              mine_p=mine_input,
-#              date_p=arc_sql_date)
+current_blast_id, current_user = get_blast_id(blast_table_p=sis_blasts_table,
+                                              mine_p=mine_input,
+                                              date_p=query_date_string)
 
-# machine_buff, people_buff, block_selection = find_clearance_zones(spatref_p=block_spat_ref,
-#                                                                   blocks_p=selected_blocks,
-#                                                                   scratch_machine_p=machine_clear_scratch_fc,
-#                                                                   scratch_people_p=people_clear_scratch_fc,
-#                                                                   scratch_gdb_p=scratch_gdb,
-#                                                                   machine_rad_p=machine_radius_input,
-#                                                                   people_rad_p=people_radius_input)
-#
-# data_management(blocks_p=block_selection,
-#                 machine_p=machine_buff,
-#                 people_p=people_buff,
-#                 date_sql_p=arc_sql_date,
-#                 mine_p=mine_input)
+# Check whether blocks exist in the Blocks table
+blocks_check(block_list_p=block_input,
+             sde_table_p=sde_block_path,
+             search_field_p="Number")
+
+# Join the BlockStatus and Blocks features
+block_status_and_block = join_features(sde_block_status_path, sde_block_path, "BlockId")
+
+# Create the search Query which will be used to select blocks from the joined feature layer
+search_query = block_search_sql(block_list_p=block_input,
+                                block_number_p="BlockInventory.dbo.Block.Number",
+                                block_currentstatus_p="BlockInventory.dbo.Block.CurrentStatusId",
+                                blockstatus_status_p="BlockInventory.dbo.BlockStatus.StatusId")
+
+# Select Blocks that will be blasted
+selected_blocks = blocks_to_blast(block_feature_p=block_status_and_block,
+                                  search_clause_p=search_query)
+
+# Create the buffer & blocks features
+machine_buff, people_buff, block_selection = find_clearance_zones(spatref_p=block_spat_ref,
+                                                                  blocks_p=selected_blocks,
+                                                                  scratch_machine_p=machine_clear_scratch_fc,
+                                                                  scratch_people_p=people_clear_scratch_fc,
+                                                                  scratch_gdb_p=scratch_gdb,
+                                                                  machine_rad_p=machine_radius_input,
+                                                                  people_rad_p=people_radius_input,
+                                                                  machine_single_p=machine_clear_single_scratch_fc,
+                                                                  people_single_p=people_clear__single_scratch_fc)
+
+# Perform some data management tasks, append and export to CAD
+data_management(blocks_p=block_selection,
+                machine_p=machine_buff,
+                people_p=people_buff,
+                date_sql_p=arc_sql_date,
+                mine_p=mine_input,
+                blast_clear_id_p=current_blast_id)
