@@ -2,6 +2,7 @@
 
 import arcpy
 import os
+from datetime import datetime
 
 
 # TODO: Add functionality for file input (txt file, one block on each line)
@@ -22,6 +23,7 @@ import os
 # TODO: Export cad file to relevant folder, e.g. blast > YYYY > X_MMM > YYYYMMDDHHMMSS_USER
 #       Check if folder exists, f not, create it
 # TODO: Add Blast ID to folder name
+# TODO: Master DGN file per Mining Zone for reference purposes
 
 
 # Functions
@@ -144,6 +146,8 @@ def find_clearance_zones(spatref_p, blocks_p, scratch_machine_p, scratch_people_
         temp_block_selection = arcpy.FeatureClassToFeatureClass_conversion(blocks_p, scratch_gdb_p, "TESTBLOCKS")
         arc_output("Temporary Block Feature Created")
 
+        return temp_machine_buff, temp_people_buff, temp_block_selection
+
         # TODO: Data management Code
         # TODO: Export to CAD Code
 
@@ -154,6 +158,26 @@ def find_clearance_zones(spatref_p, blocks_p, scratch_machine_p, scratch_people_
         # arcpy.Delete_management(temp_people_buff)
         # arcpy.Delete_management(temp_block_selection)
         # arc_output("Temporary Features Deleted")
+
+
+# This function is used for data management purposes
+# TODO: Elaborate
+def data_management(blocks_p, machine_p, people_p, date_sql_p):
+    # Add Fields
+    clearance_list = [machine_p, people_p]
+    feature_list = [blocks_p, machine_p, people_p]
+    for feature in clearance_list:
+        arc_output(f"Adding Fields to {feature}")
+        arcpy.AddFields_management(feature, [["BlastClearId", "TEXT"], ["DateTime", "DATE"], ["Mine", "TEXT"],
+                                             ["ClearanceType", "TEXT"]])
+        arc_output(f"Fields added to {feature}")
+    arc_output(f"Adding Fields to {blocks_p}")
+    arcpy.AddFields_management(blocks_p, [["BlastClearId", "TEXT"], ["DateTime", "DATE"], ["Mine", "TEXT"]])
+    arc_output(f"Fields added to {blocks_p}")
+
+    # Calculate Fields
+    for feature in feature_list:
+        arcpy.CalculateField_management(feature, "DateTime", date_sql_p, "PYTHON3")
 
 
 # Main Program
@@ -167,6 +191,9 @@ working_gdb = os.path.join(workspace, 'BlastClearance.gdb')
 scratch_gdb = os.path.join(workspace, 'scratch.gdb')
 archive_gdb = os.path.join(workspace, 'Archive.gdb')
 block_inventory_sde = r"S:\Mining\MRM\SURVEY\DME\NEWGME\ARC\SDE_CONNECTIONS\BlockInventory.sde"
+date_string = datetime.today().strftime('%Y%m%d%H%M%S')
+arc_date_string = datetime.today().strftime('%m/%d/%Y %H:%M:%S %p')
+arc_sql_date = "'" + arc_date_string + "'"
 
 # Spatial Reference Variable
 spat_ref = "PROJCS['Cape_Lo23_Sishen',GEOGCS['GCS_Cape',DATUM['D_Cape',SPHEROID['Clarke_1880_Arc',6378249.145," \
@@ -210,10 +237,15 @@ search_query = block_search_sql(block_list_p=block_input,
 selected_blocks = blocks_to_blast(block_feature_p=block_status_and_block,
                                   search_clause_p=search_query)
 
-find_clearance_zones(spatref_p=block_spat_ref,
-                     blocks_p=selected_blocks,
-                     scratch_machine_p=machine_clear_scratch_fc,
-                     scratch_people_p=people_clear_scratch_fc,
-                     scratch_gdb_p=scratch_gdb,
-                     machine_rad_p=machine_radius_input,
-                     people_rad_p=people_radius_input)
+machine_buff, people_buff, block_selection = find_clearance_zones(spatref_p=block_spat_ref,
+                                                                  blocks_p=selected_blocks,
+                                                                  scratch_machine_p=machine_clear_scratch_fc,
+                                                                  scratch_people_p=people_clear_scratch_fc,
+                                                                  scratch_gdb_p=scratch_gdb,
+                                                                  machine_rad_p=machine_radius_input,
+                                                                  people_rad_p=people_radius_input)
+
+data_management(blocks_p=block_selection,
+                machine_p=machine_buff,
+                people_p=people_buff,
+                date_sql_p=arc_sql_date)
