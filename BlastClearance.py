@@ -8,6 +8,7 @@ from datetime import datetime
 # TODO: Add functionality for file input (txt file, one block on each line)
 # TODO: Choose whether file or list input is used
 # TODO: Sanitize inputs (remove "/" if any)
+# TODO: Create symbology layers
 # TODO: Assign layer symbology to feature class, if possible.
 # TODO: Each user has own Project file, hardcode master geodatabase, investigate feature service later on
 # TODO: Identify mining area (North / South/ Lylyveld south):
@@ -15,7 +16,6 @@ from datetime import datetime
 #       Level join to ElevationDatum using "ElevationDatumId"
 #       ElevationDatum - use field "Name"
 # TODO: CAD Export using Seed File for Symbology
-# TODO: Create symbology layers
 # TODO: Blast ID table
 # TODO: Separate script and tools for when additional features such as misfires or toes must be added
 # TODO: Data management assign blast id to user, blocks, clearance zones
@@ -24,6 +24,8 @@ from datetime import datetime
 #       Check if folder exists, f not, create it
 # TODO: Add Blast ID to folder name
 # TODO: Master DGN file per Mining Zone for reference purposes
+# TODO: Delete Scratch features
+# TODO: Static seed file location
 
 
 # Functions
@@ -143,7 +145,7 @@ def find_clearance_zones(spatref_p, blocks_p, scratch_machine_p, scratch_people_
         arc_output("People Clearance Buffer Created")
         # Create the temporary block feature
         arc_output("Creating Temporary Block Feature")
-        temp_block_selection = arcpy.FeatureClassToFeatureClass_conversion(blocks_p, scratch_gdb_p, "TESTBLOCKS")
+        temp_block_selection = arcpy.FeatureClassToFeatureClass_conversion(blocks_p, scratch_gdb_p, "TEMP_BLOCKS")
         arc_output("Temporary Block Feature Created")
 
         return temp_machine_buff, temp_people_buff, temp_block_selection
@@ -162,22 +164,51 @@ def find_clearance_zones(spatref_p, blocks_p, scratch_machine_p, scratch_people_
 
 # This function is used for data management purposes
 # TODO: Elaborate
-def data_management(blocks_p, machine_p, people_p, date_sql_p):
-    # Add Fields
+def data_management(blocks_p, machine_p, people_p, date_sql_p, mine_p):
+    # Create lists to enable iteration for adding and calculating fields
     clearance_list = [machine_p, people_p]
     feature_list = [blocks_p, machine_p, people_p]
-    for feature in clearance_list:
-        arc_output(f"Adding Fields to {feature}")
-        arcpy.AddFields_management(feature, [["BlastClearId", "TEXT"], ["DateTime", "DATE"], ["Mine", "TEXT"],
-                                             ["ClearanceType", "TEXT"]])
-        arc_output(f"Fields added to {feature}")
-    arc_output(f"Adding Fields to {blocks_p}")
-    arcpy.AddFields_management(blocks_p, [["BlastClearId", "TEXT"], ["DateTime", "DATE"], ["Mine", "TEXT"]])
-    arc_output(f"Fields added to {blocks_p}")
 
-    # Calculate Fields
+    # Create string to display useful output to user (block feature name)
+    blocks_p_name = str(blocks_p).split("\\")[-1]
+
+    # Loop through all features and add fields
+    for feature in clearance_list:
+        # Create string to display useful output to user (feature name)
+        feature_name = str(feature).split("\\")[-1]
+        arc_output(f"Adding Fields to {feature_name}")
+        arcpy.AddFields_management(feature, [["BlastClearId", "TEXT"], ["DateTime", "DATE"], ["Mine", "TEXT"],
+                                             ["ClearanceType", "TEXT"], ["Level", "TEXT"]])
+        arc_output(f"Fields added to {feature_name}")
+
+    # Add fields to block feature specifically
+    arc_output(f"Adding Fields to {blocks_p_name}")
+    arcpy.AddFields_management(blocks_p, [["BlastClearId", "TEXT"], ["DateTime", "DATE"], ["Mine", "TEXT"],
+                                          ["Level", "TEXT"]])
+    arc_output(f"Fields added to {blocks_p_name}")
+
+    # Calculate Fields in all features
+    arc_output(f"Calculating Fields")
     for feature in feature_list:
+        feature_name = str(feature).split("\\")[-1]
+        if feature == blocks_p:
+            arcpy.CalculateField_management(feature, "Level", "'500'", "PYTHON3")
+            arc_output(f"{feature_name} Level Calculated")
+        elif feature == machine_p:
+            # arcpy.CalculateField_management(feature, "Level", "'501'", "PYTHON3")
+            arcpy.CalculateFields_management(feature, "PYTHON3", [["Level", "'501'"], ["ClearanceType", "'Machine'"]])
+            arc_output(f"{feature_name} Level & ClearanceType Calculated")
+        elif feature == people_p:
+            # arcpy.CalculateField_management(feature, "Level", "'502'", "PYTHON3")
+            arcpy.CalculateFields_management(feature, "PYTHON3", [["Level", "'502'"], ["ClearanceType", "'People'"]])
+            arc_output(f"{feature_name} Level & ClearanceType Calculated")
         arcpy.CalculateField_management(feature, "DateTime", date_sql_p, "PYTHON3")
+        arc_output(f"{feature_name} DateTime Calculated")
+        arcpy.CalculateField_management(feature, "Mine", "'" + mine_p + "'", "PYTHON3")
+        arc_output(f"{feature_name} Mine Calculated")
+    arc_output(f"Fields Calculated")
+
+    # Calculate Fields in separate features (CAD Levels used for Exports)
 
 
 # Main Program
@@ -212,6 +243,7 @@ block_spat_ref = "PROJCS['Cape_Lo23_Sishen_Blocks',GEOGCS['GCS_Cape',DATUM['D_Ca
 block_input = arcpy.GetParameter(0)
 machine_radius_input = arcpy.GetParameterAsText(1)
 people_radius_input = arcpy.GetParameterAsText(2)
+mine_input = arcpy.GetParameterAsText(3)
 
 # Derived Variables
 sde_block_status_path = os.path.join(block_inventory_sde, "BlockInventory.dbo.BlockStatus")
@@ -248,4 +280,5 @@ machine_buff, people_buff, block_selection = find_clearance_zones(spatref_p=bloc
 data_management(blocks_p=block_selection,
                 machine_p=machine_buff,
                 people_p=people_buff,
-                date_sql_p=arc_sql_date)
+                date_sql_p=arc_sql_date,
+                mine_p=mine_input)
