@@ -129,11 +129,12 @@ def find_clearance_zones(spatref_p, blocks_p, scratch_machine_p, scratch_people_
         # Create the two temporary buffer features
         arc_output("Creating Machine Clearance Buffer")
         temp_machine_buff_multi = arcpy.Buffer_analysis(blocks_p, scratch_machine_p, f"{machine_rad_p} Meters", "FULL",
-                                                  "ROUND", "ALL", None, "PLANAR")
+                                                        "ROUND", "ALL", None, "PLANAR")
         arc_output("Machine Clearance Buffer Created")
         arc_output("Creating People Clearance Buffer")
-        temp_people_buff_multi = arcpy.Buffer_analysis(blocks_p, scratch_people_p, f"{people_rad_p} Meters", "FULL", "ROUND",
-                                                 "ALL", None, "PLANAR")
+        temp_people_buff_multi = arcpy.Buffer_analysis(blocks_p, scratch_people_p, f"{people_rad_p} Meters", "FULL",
+                                                       "ROUND",
+                                                       "ALL", None, "PLANAR")
         arc_output("People Clearance Buffer Created")
         # Create the temporary block feature
         arc_output("Creating Temporary Block Feature")
@@ -223,11 +224,12 @@ def get_blast_id(blast_table_p, mine_p, date_p):
 
 
 # This function is used to create a folder in the correct subfolder where the CAD output of the blast will be saved.
-def create_cad_folders(date_string_p, user_p, blast_id_p, mine_p, resources_p, cad_output_p):
-
+def create_cad_folders(date_string_p, user_p, blast_id_p, mine_p, resources_p, cad_output_p, sis_spat_ref_p,
+                       block_fc_p, machine_fc_p, people_fc_p):
     year = date_string_p[:4]
     month_num = date_string_p[4:6]
     reference_path = os.path.join(resources_p, "ReferenceFiles")
+    seed_file_path = os.path.join(resources_p, "BlastSeed.dgn")
     north_mine_cad_name = "BLAST_NORTH_MINE.DGN"
     south_mine_cad_name = "BLAST_SOUTH_MINE.DGN"
     lylyveld_north_cad_name = "BLAST_LYLYVELD_NORTH_MINE.DGN"
@@ -254,8 +256,16 @@ def create_cad_folders(date_string_p, user_p, blast_id_p, mine_p, resources_p, c
         cad_out_file = os.path.join(reference_path, lylyveld_north_cad_name)
         master_blast_file = os.path.join(resources_p, "LylyveldNorthMaster.dgn")
 
-
     # TODO: Export to CAD here
+    # Export Blocks and Clearance Zones to relevant CAD file
+    features_to_export = [block_fc_p, machine_fc_p, people_fc_p]
+    with arcpy.EnvManager(outputCoordinateSystem=sis_spat_ref_p):
+        arcpy.ExportCAD_conversion(in_features=features_to_export,
+                                   Output_Type="DGN_V8",
+                                   Output_File=cad_out_file,
+                                   Ignore_FileNames="Ignore_Filenames_in_Tables",
+                                   Append_To_Existing="Overwrite_Existing_Files",
+                                   Seed_File=seed_file_path)
 
     # Depending on the month in which the script was run, choose the relevant month_dir variable to create the folder
     if month_num == "01":
@@ -299,6 +309,7 @@ def create_cad_folders(date_string_p, user_p, blast_id_p, mine_p, resources_p, c
     # Copy files to folder created in previous step
     shutil.copy(master_blast_file, blast_file_path)
     shutil.copy(cad_out_file, ref_copy_to_path)
+
 
 # Main Program
 
@@ -345,9 +356,10 @@ sde_block_path = os.path.join(block_inventory_sde, "BlockInventory.dbo.Block")
 machine_clear_scratch_fc = os.path.join(scratch_gdb, "TEMP_MACHINE")
 machine_clear_single_scratch_fc = os.path.join(scratch_gdb, "TEMP_MACHINE_SINGLE")
 people_clear_scratch_fc = os.path.join(scratch_gdb, "TEMP_PEOPLE")
-people_clear__single_scratch_fc = os.path.join(scratch_gdb, "TEMP_PEOPLE_SINGLE")
+people_clear_single_scratch_fc = os.path.join(scratch_gdb, "TEMP_PEOPLE_SINGLE")
 sis_blasts_table = os.path.join(working_gdb, "SishenBlasts")
-
+# TODO: Check if variable is necessary
+block_temp_fc = os.path.join(scratch_gdb, "TEMP_BLOCKS")
 
 current_blast_id, current_user = get_blast_id(blast_table_p=sis_blasts_table,
                                               mine_p=mine_input,
@@ -360,7 +372,11 @@ create_cad_folders(date_string_p=date_string,
                    blast_id_p=current_blast_id,
                    mine_p=mine_input,
                    resources_p=resources_dir,
-                   cad_output_p=cad_output_base_dir)
+                   cad_output_p=cad_output_base_dir,
+                   sis_spat_ref_p=spat_ref,
+                   block_fc_p=block_temp_fc,
+                   machine_fc_p=machine_clear_single_scratch_fc,
+                   people_fc_p=people_clear_single_scratch_fc)
 
 #
 # # Check whether blocks exist in the Blocks table
