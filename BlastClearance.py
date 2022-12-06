@@ -256,8 +256,8 @@ def create_cad_folders(date_string_p, user_p, blast_id_p, mine_p, resources_p, c
         cad_out_file = os.path.join(reference_path, lylyveld_north_cad_name)
         master_blast_file = os.path.join(resources_p, "LylyveldNorthMaster.dgn")
 
-    # TODO: Export to CAD here
     # Export Blocks and Clearance Zones to relevant CAD file
+    arc_output("Exporting Features to CAD")
     features_to_export = [block_fc_p, machine_fc_p, people_fc_p]
     with arcpy.EnvManager(outputCoordinateSystem=sis_spat_ref_p):
         arcpy.ExportCAD_conversion(in_features=features_to_export,
@@ -266,6 +266,7 @@ def create_cad_folders(date_string_p, user_p, blast_id_p, mine_p, resources_p, c
                                    Ignore_FileNames="Ignore_Filenames_in_Tables",
                                    Append_To_Existing="Overwrite_Existing_Files",
                                    Seed_File=seed_file_path)
+    arc_output("Features Exported to CAD")
 
     # Depending on the month in which the script was run, choose the relevant month_dir variable to create the folder
     if month_num == "01":
@@ -304,11 +305,16 @@ def create_cad_folders(date_string_p, user_p, blast_id_p, mine_p, resources_p, c
     ref_copy_to_path = os.path.join(save_dir, ref_copy_to_name)
 
     # Create folder to which blast files will be copied
+    arc_output("Creating Folder")
+    arc_output(f"Folder Name: {save_dir}")
     Path(save_dir).mkdir(parents=True, exist_ok=True)
+    arc_output("Folder Created")
 
     # Copy files to folder created in previous step
+    arc_output("Copying Files")
     shutil.copy(master_blast_file, blast_file_path)
     shutil.copy(cad_out_file, ref_copy_to_path)
+    arc_output("Files Copied")
 
 
 # Main Program
