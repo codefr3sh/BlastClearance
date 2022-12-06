@@ -10,10 +10,6 @@ from pathlib import Path
 # TODO: Add functionality for file input (txt file, one block on each line)
 # TODO: Choose whether file or list input is used
 # TODO: Sanitize inputs (remove "/" if any)
-# TODO: Identify mining area (North / South/ Lylyveld south):
-#       Block join to Level using "LevelId"
-#       Level join to ElevationDatum using "ElevationDatumId"
-#       ElevationDatum - use field "Name"
 # TODO: Separate script and tools for when additional features such as misfires or toes must be added
 # TODO: Delete Scratch features
 # TODO: Test blast clearance ID as hosted table
@@ -114,7 +110,6 @@ def display_fields(table_p):
 
 # This function is used to select the blocks which need to be blasted
 def blocks_to_blast(block_feature_p, search_clause_p):
-    # TODO: Finalize layer names
     arc_output("Creating Temporary Block Layer")
     blocks_selection = arcpy.MakeFeatureLayer_management(block_feature_p, "TempBlocks", search_clause_p)
     arc_output("Temporary Block Layer Created")
@@ -332,7 +327,7 @@ def create_cad_folders(date_string_p, user_p, blast_id_p, mine_p, resources_p, c
 # This function find the Elevation Datum name from the BlockInventory Database
 def find_elevation_datum(block_p, sde_level_p, sde_elevation_datum_p):
     # Find first value in Feature
-    with arcpy.da.SearchCursor(block_p, ["LevelId"]) as cursor:
+    with arcpy.da.SearchCursor(block_p, ["BlockInventory.dbo.Block.LevelId"]) as cursor:
         row = next(cursor)
         level_id = row[0]
         arc_output(f"Level ID: {level_id}")
@@ -389,7 +384,6 @@ block_spat_ref = "PROJCS['Cape_Lo23_Sishen_Blocks',GEOGCS['GCS_Cape',DATUM['D_Ca
 block_input = arcpy.GetParameter(0)
 machine_radius_input = arcpy.GetParameterAsText(1)
 people_radius_input = arcpy.GetParameterAsText(2)
-mine_input = arcpy.GetParameterAsText(3)
 
 # Derived Variables
 sde_block_status_path = os.path.join(block_inventory_sde, "BlockInventory.dbo.BlockStatus")
@@ -403,52 +397,52 @@ people_clear_single_scratch_fc = os.path.join(scratch_gdb, "TEMP_PEOPLE_SINGLE")
 sis_blasts_table = os.path.join(working_gdb, "SishenBlasts")
 temp_block_fc = os.path.join(scratch_gdb, "TEMP_BLOCKS")
 
-# TODO: Test find elevation datum funciton
-find_elevation_datum(temp_block_fc, sde_level_path, sde_elevation_datum_path)
-
 # Check whether blocks exist in the Blocks table
-# blocks_check(block_list_p=block_input,
-#              sde_table_p=sde_block_path,
-#              search_field_p="Number")
-#
-# # Generate a blast ID
-# current_blast_id, current_user = get_blast_id(blast_table_p=sis_blasts_table,
-#                                               mine_p=mine_input,
-#                                               date_p=query_date_string)
-#
-# # Join the BlockStatus and Blocks features
-# block_status_and_block = join_features(sde_block_status_path, sde_block_path, "BlockId")
-#
-# # Create the search Query which will be used to select blocks from the joined feature layer
-# search_query = block_search_sql(block_list_p=block_input,
-#                                 block_number_p="BlockInventory.dbo.Block.Number",
-#                                 block_currentstatus_p="BlockInventory.dbo.Block.CurrentStatusId",
-#                                 blockstatus_status_p="BlockInventory.dbo.BlockStatus.StatusId")
-#
-# # Select Blocks that will be blasted
-# selected_blocks = blocks_to_blast(block_feature_p=block_status_and_block,
-#                                   search_clause_p=search_query)
-#
-# # Create the buffer & blocks features
-# machine_buff, people_buff, block_selection = find_clearance_zones(spatref_p=block_spat_ref,
-#                                                                   blocks_p=selected_blocks,
-#                                                                   scratch_machine_p=machine_clear_scratch_fc,
-#                                                                   scratch_people_p=people_clear_scratch_fc,
-#                                                                   scratch_gdb_p=scratch_gdb,
-#                                                                   machine_rad_p=machine_radius_input,
-#                                                                   people_rad_p=people_radius_input,
-#                                                                   machine_single_p=machine_clear_single_scratch_fc,
-#                                                                   people_single_p=people_clear_single_scratch_fc)
-#
-# # Perform some data management tasks, append and export to CAD
-# data_management(blocks_p=block_selection,
-#                 machine_p=machine_buff,
-#                 people_p=people_buff,
-#                 date_sql_p=arc_sql_date,
-#                 mine_p=mine_input,
-#                 blast_clear_id_p=current_blast_id,
-#                 date_string_p=date_string,
-#                 user_p=current_user,
-#                 resources_p=resources_dir,
-#                 cad_output_p=cad_output_base_dir,
-#                 sis_spat_ref_p=spat_ref)
+blocks_check(block_list_p=block_input,
+             sde_table_p=sde_block_path,
+             search_field_p="Number")
+
+# Join the BlockStatus and Blocks features
+block_status_and_block = join_features(sde_block_status_path, sde_block_path, "BlockId")
+
+# Create the search Query which will be used to select blocks from the joined feature layer
+search_query = block_search_sql(block_list_p=block_input,
+                                block_number_p="BlockInventory.dbo.Block.Number",
+                                block_currentstatus_p="BlockInventory.dbo.Block.CurrentStatusId",
+                                blockstatus_status_p="BlockInventory.dbo.BlockStatus.StatusId")
+
+# Select Blocks that will be blasted
+selected_blocks = blocks_to_blast(block_feature_p=block_status_and_block,
+                                  search_clause_p=search_query)
+
+# Find Elevation Datum Name (Mine Name, e.g. North Mine / South Mine / Lylyveld South)
+mine_input = find_elevation_datum(selected_blocks, sde_level_path, sde_elevation_datum_path)
+
+# Generate a blast ID
+current_blast_id, current_user = get_blast_id(blast_table_p=sis_blasts_table,
+                                              mine_p=mine_input,
+                                              date_p=query_date_string)
+
+# Create the buffer & blocks features
+machine_buff, people_buff, block_selection = find_clearance_zones(spatref_p=block_spat_ref,
+                                                                  blocks_p=selected_blocks,
+                                                                  scratch_machine_p=machine_clear_scratch_fc,
+                                                                  scratch_people_p=people_clear_scratch_fc,
+                                                                  scratch_gdb_p=scratch_gdb,
+                                                                  machine_rad_p=machine_radius_input,
+                                                                  people_rad_p=people_radius_input,
+                                                                  machine_single_p=machine_clear_single_scratch_fc,
+                                                                  people_single_p=people_clear_single_scratch_fc)
+
+# Perform some data management tasks, append and export to CAD
+data_management(blocks_p=block_selection,
+                machine_p=machine_buff,
+                people_p=people_buff,
+                date_sql_p=arc_sql_date,
+                mine_p=mine_input,
+                blast_clear_id_p=current_blast_id,
+                date_string_p=date_string,
+                user_p=current_user,
+                resources_p=resources_dir,
+                cad_output_p=cad_output_base_dir,
+                sis_spat_ref_p=spat_ref)
