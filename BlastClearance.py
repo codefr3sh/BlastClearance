@@ -1,8 +1,9 @@
 # Investigate the use of the BlockInventory Database to create blast clearance plans
-
+import shutil
 import arcpy
 import os
 from datetime import datetime
+from pathlib import Path
 
 
 # TODO: Add functionality for file input (txt file, one block on each line)
@@ -15,11 +16,9 @@ from datetime import datetime
 #       ElevationDatum - use field "Name"
 # TODO: CAD Export using Seed File for Symbology
 # TODO: Separate script and tools for when additional features such as misfires or toes must be added
-# TODO: Export cad file to relevant folder, e.g. blast > YYYY > X_MMM > YYYYMMDDHHMMSS_USER
-#       Check if folder exists, f not, create it
-# TODO: Add Blast ID to folder name
 # TODO: Delete Scratch features
 # TODO: Test blast clearance ID as hosted table
+# TODO: Manage Road Clip
 
 
 # Functions
@@ -223,6 +222,84 @@ def get_blast_id(blast_table_p, mine_p, date_p):
             return str(row[1]), str(row[2])
 
 
+# This function is used to create a folder in the correct subfolder where the CAD output of the blast will be saved.
+def create_cad_folders(date_string_p, user_p, blast_id_p, mine_p, resources_p, cad_output_p):
+
+    year = date_string_p[:4]
+    month_num = date_string_p[4:6]
+    reference_path = os.path.join(resources_p, "ReferenceFiles")
+    north_mine_cad_name = "BLAST_NORTH_MINE.DGN"
+    south_mine_cad_name = "BLAST_SOUTH_MINE.DGN"
+    lylyveld_north_cad_name = "BLAST_LYLYVELD_NORTH_MINE.DGN"
+    lylyveld_south_cad_name = "BLAST_LYLYVELD_SOUTH_MINE.DGN"
+
+    # Build the path depending on inputs
+    if mine_p == "North Mine":
+        mine_path = os.path.join(cad_output_p, "North Mine")
+        cad_out_file = os.path.join(reference_path, north_mine_cad_name)
+        master_blast_file = os.path.join(resources_p, "NorthMaster.dgn")
+
+    elif mine_p == "South Mine":
+        mine_path = os.path.join(cad_output_p, "South Mine")
+        cad_out_file = os.path.join(reference_path, south_mine_cad_name)
+        master_blast_file = os.path.join(resources_p, "SouthMaster.dgn")
+
+    elif mine_p == "Lylyveld South":
+        mine_path = os.path.join(cad_output_p, "Lylyveld South")
+        cad_out_file = os.path.join(reference_path, lylyveld_south_cad_name)
+        master_blast_file = os.path.join(resources_p, "LylyveldSouthMaster.dgn")
+
+    elif mine_p == "Lylyveld North":
+        mine_path = os.path.join(cad_output_p, "Lylyveld North")
+        cad_out_file = os.path.join(reference_path, lylyveld_north_cad_name)
+        master_blast_file = os.path.join(resources_p, "LylyveldNorthMaster.dgn")
+
+
+    # TODO: Export to CAD here
+
+    # Depending on the month in which the script was run, choose the relevant month_dir variable to create the folder
+    if month_num == "01":
+        month_dir = "A_JAN"
+    elif month_num == "02":
+        month_dir = "B_FEB"
+    elif month_num == "03":
+        month_dir = "C_MAR"
+    elif month_num == "04":
+        month_dir = "D_APR"
+    elif month_num == "05":
+        month_dir = "E_MAY"
+    elif month_num == "06":
+        month_dir = "F_JUN"
+    elif month_num == "07":
+        month_dir = "G_JUL"
+    elif month_num == "08":
+        month_dir = "H_AUG"
+    elif month_num == "09":
+        month_dir = "I_SEP"
+    elif month_num == "10":
+        month_dir = "J_OCT"
+    elif month_num == "11":
+        month_dir = "K_NOV"
+    elif month_num == "12":
+        month_dir = "L_DEC"
+
+    # String variables to assist with the creation of File Paths
+    mine_underscore = mine_p.replace(" ", "_")
+    dir_name = f"{date_string_p}_ID{blast_id_p}_{user_p}"
+    blast_file_name = f"{date_string_p}_ID{blast_id_p}_{mine_underscore}.dgn"
+    dir_string = f"{year}\\{month_dir}\\{dir_name}"
+    save_dir = os.path.join(mine_path, dir_string)
+    blast_file_path = os.path.join(save_dir, blast_file_name)
+    ref_copy_to_name = f"{date_string_p}_ID{blast_id_p}_REF.dgn"
+    ref_copy_to_path = os.path.join(save_dir, ref_copy_to_name)
+
+    # Create folder to which blast files will be copied
+    Path(save_dir).mkdir(parents=True, exist_ok=True)
+
+    # Copy files to folder created in previous step
+    shutil.copy(master_blast_file, blast_file_path)
+    shutil.copy(cad_out_file, ref_copy_to_path)
+
 # Main Program
 
 # Workspace Variables
@@ -276,39 +353,49 @@ current_blast_id, current_user = get_blast_id(blast_table_p=sis_blasts_table,
                                               mine_p=mine_input,
                                               date_p=query_date_string)
 
-# Check whether blocks exist in the Blocks table
-blocks_check(block_list_p=block_input,
-             sde_table_p=sde_block_path,
-             search_field_p="Number")
+# Test Folders
+# TODO: Test - move into data management function after it works
+create_cad_folders(date_string_p=date_string,
+                   user_p=current_user,
+                   blast_id_p=current_blast_id,
+                   mine_p=mine_input,
+                   resources_p=resources_dir,
+                   cad_output_p=cad_output_base_dir)
 
-# Join the BlockStatus and Blocks features
-block_status_and_block = join_features(sde_block_status_path, sde_block_path, "BlockId")
-
-# Create the search Query which will be used to select blocks from the joined feature layer
-search_query = block_search_sql(block_list_p=block_input,
-                                block_number_p="BlockInventory.dbo.Block.Number",
-                                block_currentstatus_p="BlockInventory.dbo.Block.CurrentStatusId",
-                                blockstatus_status_p="BlockInventory.dbo.BlockStatus.StatusId")
-
-# Select Blocks that will be blasted
-selected_blocks = blocks_to_blast(block_feature_p=block_status_and_block,
-                                  search_clause_p=search_query)
-
-# Create the buffer & blocks features
-machine_buff, people_buff, block_selection = find_clearance_zones(spatref_p=block_spat_ref,
-                                                                  blocks_p=selected_blocks,
-                                                                  scratch_machine_p=machine_clear_scratch_fc,
-                                                                  scratch_people_p=people_clear_scratch_fc,
-                                                                  scratch_gdb_p=scratch_gdb,
-                                                                  machine_rad_p=machine_radius_input,
-                                                                  people_rad_p=people_radius_input,
-                                                                  machine_single_p=machine_clear_single_scratch_fc,
-                                                                  people_single_p=people_clear__single_scratch_fc)
-
-# Perform some data management tasks, append and export to CAD
-data_management(blocks_p=block_selection,
-                machine_p=machine_buff,
-                people_p=people_buff,
-                date_sql_p=arc_sql_date,
-                mine_p=mine_input,
-                blast_clear_id_p=current_blast_id)
+#
+# # Check whether blocks exist in the Blocks table
+# blocks_check(block_list_p=block_input,
+#              sde_table_p=sde_block_path,
+#              search_field_p="Number")
+#
+# # Join the BlockStatus and Blocks features
+# block_status_and_block = join_features(sde_block_status_path, sde_block_path, "BlockId")
+#
+# # Create the search Query which will be used to select blocks from the joined feature layer
+# search_query = block_search_sql(block_list_p=block_input,
+#                                 block_number_p="BlockInventory.dbo.Block.Number",
+#                                 block_currentstatus_p="BlockInventory.dbo.Block.CurrentStatusId",
+#                                 blockstatus_status_p="BlockInventory.dbo.BlockStatus.StatusId")
+#
+# # Select Blocks that will be blasted
+# selected_blocks = blocks_to_blast(block_feature_p=block_status_and_block,
+#                                   search_clause_p=search_query)
+#
+# # Create the buffer & blocks features
+# machine_buff, people_buff, block_selection = find_clearance_zones(spatref_p=block_spat_ref,
+#                                                                   blocks_p=selected_blocks,
+#                                                                   scratch_machine_p=machine_clear_scratch_fc,
+#                                                                   scratch_people_p=people_clear_scratch_fc,
+#                                                                   scratch_gdb_p=scratch_gdb,
+#                                                                   machine_rad_p=machine_radius_input,
+#                                                                   people_rad_p=people_radius_input,
+#                                                                   machine_single_p=machine_clear_single_scratch_fc,
+#                                                                   people_single_p=people_clear__single_scratch_fc)
+#
+# # Perform some data management tasks, append and export to CAD
+# data_management(blocks_p=block_selection,
+#                 machine_p=machine_buff,
+#                 people_p=people_buff,
+#                 date_sql_p=arc_sql_date,
+#                 mine_p=mine_input,
+#                 blast_clear_id_p=current_blast_id)
