@@ -15,6 +15,9 @@ from pathlib import Path
 # TODO: Test blast clearance ID as hosted table
 # TODO: Investigate hosted feature service (will probably cause delays)
 # TODO: Manage Road Clip
+# TODO: Remove redundant functions
+# TODO: Cleanup Test Printouts
+# TODO: Better use of variables and better parameter names
 
 
 # Functions
@@ -81,20 +84,36 @@ def blocks_check(block_list_p, sde_table_p, search_field_p):
 
 # This function creates the SQL string to select blocks
 # Return the Search String
-def block_search_sql(block_list_p, block_number_p, block_currentstatus_p, blockstatus_status_p):
+def block_search_sql_query(block_list_p, block_number_p):
     search_string = ""
     if len(block_list_p) == 1:
         search_string += f"{block_number_p} = '{block_list_p[0]}'"
     else:
         for count, block in enumerate(block_list_p):
             if count == 0:
-                search_string += f"({block_number_p} = '{block}' OR "
+                search_string += f"{block_number_p} = '{block}' OR "
             elif count == len(block_list_p) - 1:
-                search_string += f"{block_number_p} = '{block}')"
+                search_string += f"{block_number_p} = '{block}'"
             else:
                 search_string += f"{block_number_p} = '{block}' OR "
-        search_string += f" AND ({block_currentstatus_p} = {blockstatus_status_p})"
+    arc_output(search_string)
+    return search_string
 
+
+# This function creates the SQL string to Select Block Shapes from the Block Status Table
+# Return the Search String
+def block_status_sql_query(block_array_p):
+    search_string = "select * from BlockStatus where "
+    if len(block_array_p) == 1:
+        search_string += f"(BlockId = {block_array_p[0][0]} AND StatusId = {block_array_p[0][2]})"
+    else:
+        for count, block in enumerate(block_array_p):
+            if count == len(block_array_p) - 1:
+                search_string += f"(BlockId = {block_array_p[count][0]} AND StatusId = {block_array_p[count][2]})"
+            else:
+                search_string += f"(BlockId = {block_array_p[count][0]} AND StatusId = {block_array_p[count][2]}) OR "
+
+    arc_output(search_string)
     return search_string
 
 
@@ -108,17 +127,7 @@ def display_fields(table_p):
     arc_output("Field Display Complete")
 
 
-# This function is used to select the blocks which need to be blasted
-def blocks_to_blast(block_feature_p, search_clause_p):
-    arc_output("Creating Temporary Block Layer")
-    blocks_selection = arcpy.MakeFeatureLayer_management(block_feature_p, "TempBlocks", search_clause_p)
-    arc_output("Temporary Block Layer Created")
-
-    return blocks_selection
-
-
 # This function creates the temporary blocks feature class and generates the machine and people clearance zones
-
 def find_clearance_zones(spatref_p, blocks_p, scratch_machine_p, scratch_people_p, scratch_gdb_p, machine_rad_p,
                          people_rad_p, machine_single_p, people_single_p):
     with arcpy.EnvManager(outputCoordinateSystem=spatref_p):
@@ -325,12 +334,12 @@ def create_cad_folders(date_string_p, user_p, blast_id_p, mine_p, resources_p, c
 
 
 # This function find the Elevation Datum name from the BlockInventory Database
-def find_elevation_datum(block_p, sde_level_p, sde_elevation_datum_p):
-    # Find first value in Feature
-    with arcpy.da.SearchCursor(block_p, ["BlockInventory.dbo.Block.LevelId"]) as cursor:
-        row = next(cursor)
-        level_id = row[0]
-        arc_output(f"Level ID: {level_id}")
+def find_elevation_datum(block_array_p, sde_level_p, sde_elevation_datum_p):
+    # Find first LevelId in the BlockArray
+    for count, row in enumerate(block_array_p):
+        level_id = block_array_p[count][3]
+        arc_output(f"Level ID: {block_array_p[count][3]}")
+        break
 
     with arcpy.da.SearchCursor(sde_level_p, ["LevelId", "ElevationDatumId"], f"LevelId = {level_id}") as cursor:
         for row in cursor:
@@ -346,6 +355,32 @@ def find_elevation_datum(block_p, sde_level_p, sde_elevation_datum_p):
             break
 
     return mine_name
+
+
+# This function is used to create an array containing the BlockId, Number, CurrentStatusId and LevelId
+def make_block_array(block_search_p, sde_block_path_p):
+    block_select_array = []
+    with arcpy.da.SearchCursor(sde_block_path_p, ["BlockId", "Number", "CurrentStatusID", "LevelId"],
+                               block_search_p) as cursor:
+        for row in cursor:
+            block_select_array.append([row[0], row[1], row[2], row[3]])
+        arcpy.AddMessage(block_select_array)
+        for line in block_select_array:
+            arcpy.AddMessage(line)
+    return block_select_array
+
+
+# This function is used to create a query layer to find blocks
+def make_block_status_query_layer(sde_p, block_spat_ref_p, sde_block_query_p):
+    arc_output("Creating Block Query Layer")
+    block_layer = arcpy.MakeQueryLayer_management(input_database=sde_p,
+                                                  out_layer_name="TempBlocks",
+                                                  query=sde_block_query_p,
+                                                  oid_fields="BlockStatusId",
+                                                  shape_type="POLYGON",
+                                                  spatial_reference=block_spat_ref_p)
+    arc_output("Block Query Layer Created")
+    return block_layer
 
 
 # Main Program
@@ -402,21 +437,19 @@ blocks_check(block_list_p=block_input,
              sde_table_p=sde_block_path,
              search_field_p="Number")
 
-# Join the BlockStatus and Blocks features
-block_status_and_block = join_features(sde_block_status_path, sde_block_path, "BlockId")
+block_search = block_search_sql_query(block_list_p=block_input,
+                                      block_number_p="Number")
 
-# Create the search Query which will be used to select blocks from the joined feature layer
-search_query = block_search_sql(block_list_p=block_input,
-                                block_number_p="BlockInventory.dbo.Block.Number",
-                                block_currentstatus_p="BlockInventory.dbo.Block.CurrentStatusId",
-                                blockstatus_status_p="BlockInventory.dbo.BlockStatus.StatusId")
+block_select_array = make_block_array(block_search, sde_block_path)
 
-# Select Blocks that will be blasted
-selected_blocks = blocks_to_blast(block_feature_p=block_status_and_block,
-                                  search_clause_p=search_query)
+block_shape_search = block_status_sql_query(block_select_array)
+
+selected_blocks = make_block_status_query_layer(sde_p=block_inventory_sde,
+                                                block_spat_ref_p=block_spat_ref,
+                                                sde_block_query_p=block_shape_search)
 
 # Find Elevation Datum Name (Mine Name, e.g. North Mine / South Mine / Lylyveld South)
-mine_input = find_elevation_datum(selected_blocks, sde_level_path, sde_elevation_datum_path)
+mine_input = find_elevation_datum(block_select_array, sde_level_path, sde_elevation_datum_path)
 
 # Generate a blast ID
 current_blast_id, current_user = get_blast_id(blast_table_p=sis_blasts_table,
