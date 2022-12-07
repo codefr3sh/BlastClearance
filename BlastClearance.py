@@ -38,6 +38,7 @@ def arc_output(message_p):
 
 # This function is used to join two tabled
 # Return the joined feature layer
+# THIS FUNCTION IS NOT USED IN THE CURRENT ITERATION OF THE SCRIPT
 def join_features(table_1, table_2, field_string_p):
     joined_table = arcpy.AddJoin_management(table_1, field_string_p, table_2, field_string_p, "KEEP_COMMON")
     arc_output(f"{table_1.split('dbo.')[-1]} and {table_2.split('dbo.')[-1]} Tables joined using {field_string_p}")
@@ -70,7 +71,6 @@ def blocks_check(block_list_p, sde_table_p, search_field_p):
 
     # If there is any data in the error list, arcgis pro must provide the user with an error message
     # containing the block numbers which must be checked.
-    # TODO: Try / Except / Custom Error
     if len(error_list) > 0:
         if len(error_list) == 1:
             arcpy.AddError(f"Block {error_list[0]} does not exist.\nPlease contact the Blasting Team.")
@@ -97,7 +97,6 @@ def block_search_sql_query(block_list_p, block_number_p):
                 search_string += f"{block_number_p} = '{block}'"
             else:
                 search_string += f"{block_number_p} = '{block}' OR "
-    arc_output(search_string)
     return search_string
 
 
@@ -114,7 +113,6 @@ def block_status_sql_query(block_array_p):
             else:
                 search_string += f"(BlockId = {block_array_p[count][0]} AND StatusId = {block_array_p[count][2]}) OR "
 
-    arc_output(search_string)
     return search_string
 
 
@@ -166,7 +164,7 @@ def find_clearance_zones(spatref_p, blocks_p, scratch_machine_p, scratch_people_
 # TODO: Elaborate
 def data_management(block_input_feature, equipment_buffer, people_buffer, date_sql_string, elevation_datum_input,
                     blast_clearance_id, date_string, user, resourced_dir, cad_output_dir, mine_spatial_reference,
-                    master_block_feature, master_clearance_feature):
+                    master_block_feature, master_clearance_feature, block_array):
     # Create lists to enable iteration for adding and calculating fields
     clearance_list = [equipment_buffer, people_buffer]
     feature_list = [block_input_feature, equipment_buffer, people_buffer]
@@ -176,7 +174,7 @@ def data_management(block_input_feature, equipment_buffer, people_buffer, date_s
     equipment_buffer_feature_name = str(equipment_buffer).split("\\")[-1]
     people_buffer_feature_name = str(people_buffer).split("\\")[-1]
     master_block_feature_name = str(master_block_feature).split("\\")[-1]
-    master_buffer_feature_name = str(master_clearance_feature).split("\\"[-1])
+    master_buffer_feature_name = str(master_clearance_feature).split("\\")[-1]
 
     # Loop through all features and add fields
     for feature in clearance_list:
@@ -190,7 +188,7 @@ def data_management(block_input_feature, equipment_buffer, people_buffer, date_s
     # Add fields to block feature specifically
     arc_output(f"Adding Fields to {block_feature_name}")
     arcpy.AddFields_management(block_input_feature, [["BlastClearId", "TEXT"], ["DateTime", "DATE"], ["Mine", "TEXT"],
-                                                     ["Level", "TEXT"]])
+                                                     ["Level", "TEXT"], ["Number", "TEXT"]])
     arc_output(f"Fields added to {block_feature_name}")
 
     # Calculate Fields in all features
@@ -200,6 +198,7 @@ def data_management(block_input_feature, equipment_buffer, people_buffer, date_s
         if feature == block_input_feature:
             arcpy.CalculateField_management(feature, "Level", "'500'", "PYTHON3")
             arc_output(f"{feature_name} Level Calculated")
+            calc_block_num(block_array, block_input_feature)
         elif feature == equipment_buffer:
             arcpy.CalculateFields_management(feature, "PYTHON3", [["Level", "'501'"], ["ClearanceType", "'Machine'"]])
             arc_output(f"{feature_name} Level & ClearanceType Calculated")
@@ -390,9 +389,6 @@ def make_block_array(block_search_p, sde_block_path_p):
                                block_search_p) as cursor:
         for row in cursor:
             block_select_array.append([row[0], row[1], row[2], row[3]])
-        arcpy.AddMessage(block_select_array)
-        for line in block_select_array:
-            arcpy.AddMessage(line)
     return block_select_array
 
 
@@ -407,6 +403,18 @@ def make_block_status_query_layer(sde_p, block_spat_ref_p, sde_block_query_p):
                                                   spatial_reference=block_spat_ref_p)
     arc_output("Block Query Layer Created")
     return block_layer
+
+
+# This function calculates block numbers based on the block ID
+def calc_block_num(block_array, block_temp_feature):
+    arc_output("Calculating Block Numbers")
+    with arcpy.da.UpdateCursor(block_temp_feature, ["BlockId", "Number"]) as cursor:
+        for row in cursor:
+            for block in block_array:
+                if row[0] == block[0]:
+                    row[1] = str(block[1])
+                    cursor.updateRow(row)
+    arc_output("Block Numbers Calculated")
 
 
 # Main Program
@@ -512,4 +520,5 @@ data_management(block_input_feature=temp_block_feature,
                 cad_output_dir=cad_output_base_dir,
                 mine_spatial_reference=sishen_local_spatial_reference,
                 master_block_feature=master_blocks_fc,
-                master_clearance_feature=master_clearance_fc)
+                master_clearance_feature=master_clearance_fc,
+                block_array=block_select_array)
