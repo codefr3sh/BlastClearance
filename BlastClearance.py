@@ -6,19 +6,20 @@ from datetime import datetime
 from pathlib import Path
 
 
-# TODO: Append temp features to the master features and delete temp features
 # TODO: Add functionality for file input (txt file, one block on each line)
 # TODO: Choose whether file or list input is used
 # TODO: Sanitize inputs (remove "/" if any)
 # TODO: Separate script and tools for when additional features such as misfires or toes must be added
-# TODO: Delete Scratch features
 # TODO: Test blast clearance ID as hosted table
 # TODO: Investigate hosted feature service (will probably cause delays)
 # TODO: Manage Road Clip
 # TODO: Remove redundant functions
 # TODO: Cleanup Test Printouts
 # TODO: Better use of variables and better parameter names
-
+# TODO: Read spatial references from files
+# TODO: Temp Features - Add user name to feature name
+# TODO: Investigate Block Dictionary instead of Block Array
+# TODO: Project folder - if scratch.gdb does not exist, create it.
 
 # Functions
 # This functions gets the path where the '.aprx' file is located and returns the working directory
@@ -143,7 +144,7 @@ def find_clearance_zones(spatref_p, blocks_p, scratch_machine_p, scratch_people_
         arc_output("People Clearance Buffer Created")
         # Create the temporary block feature
         arc_output("Creating Temporary Block Feature")
-        temp_block_selection = arcpy.FeatureClassToFeatureClass_conversion(blocks_p, scratch_gdb_p, "TEMP_BLOCKS")
+        temp_block_feature = arcpy.FeatureClassToFeatureClass_conversion(blocks_p, scratch_gdb_p, "TEMP_BLOCKS")
         arc_output("Temporary Block Feature Created")
 
         # Drop Polygons to Single Part Features
@@ -158,19 +159,24 @@ def find_clearance_zones(spatref_p, blocks_p, scratch_machine_p, scratch_people_
         arcpy.Delete_management(temp_machine_buff_multi)
         arc_output("Multipart Features Deleted")
 
-        return temp_machine_buff, temp_people_buff, temp_block_selection
+        return temp_machine_buff, temp_people_buff, temp_block_feature
 
 
 # This function is used for data management purposes
 # TODO: Elaborate
-def data_management(blocks_p, machine_p, people_p, date_sql_p, mine_p, blast_clear_id_p, date_string_p, user_p,
-                    resources_p, cad_output_p, sis_spat_ref_p):
+def data_management(block_input_feature, equipment_buffer, people_buffer, date_sql_string, elevation_datum_input,
+                    blast_clearance_id, date_string, user, resourced_dir, cad_output_dir, mine_spatial_reference,
+                    master_block_feature, master_clearance_feature):
     # Create lists to enable iteration for adding and calculating fields
-    clearance_list = [machine_p, people_p]
-    feature_list = [blocks_p, machine_p, people_p]
+    clearance_list = [equipment_buffer, people_buffer]
+    feature_list = [block_input_feature, equipment_buffer, people_buffer]
 
     # Create string to display useful output to user (block feature name)
-    blocks_p_name = str(blocks_p).split("\\")[-1]
+    block_feature_name = str(block_input_feature).split("\\")[-1]
+    equipment_buffer_feature_name = str(equipment_buffer).split("\\")[-1]
+    people_buffer_feature_name = str(people_buffer).split("\\")[-1]
+    master_block_feature_name = str(master_block_feature).split("\\")[-1]
+    master_buffer_feature_name = str(master_clearance_feature).split("\\"[-1])
 
     # Loop through all features and add fields
     for feature in clearance_list:
@@ -182,43 +188,63 @@ def data_management(blocks_p, machine_p, people_p, date_sql_p, mine_p, blast_cle
         arc_output(f"Fields added to {feature_name}")
 
     # Add fields to block feature specifically
-    arc_output(f"Adding Fields to {blocks_p_name}")
-    arcpy.AddFields_management(blocks_p, [["BlastClearId", "TEXT"], ["DateTime", "DATE"], ["Mine", "TEXT"],
-                                          ["Level", "TEXT"]])
-    arc_output(f"Fields added to {blocks_p_name}")
+    arc_output(f"Adding Fields to {block_feature_name}")
+    arcpy.AddFields_management(block_input_feature, [["BlastClearId", "TEXT"], ["DateTime", "DATE"], ["Mine", "TEXT"],
+                                                     ["Level", "TEXT"]])
+    arc_output(f"Fields added to {block_feature_name}")
 
     # Calculate Fields in all features
     arc_output(f"Calculating Fields")
     for feature in feature_list:
         feature_name = str(feature).split("\\")[-1]
-        if feature == blocks_p:
+        if feature == block_input_feature:
             arcpy.CalculateField_management(feature, "Level", "'500'", "PYTHON3")
             arc_output(f"{feature_name} Level Calculated")
-        elif feature == machine_p:
+        elif feature == equipment_buffer:
             arcpy.CalculateFields_management(feature, "PYTHON3", [["Level", "'501'"], ["ClearanceType", "'Machine'"]])
             arc_output(f"{feature_name} Level & ClearanceType Calculated")
-        elif feature == people_p:
+        elif feature == people_buffer:
             arcpy.CalculateFields_management(feature, "PYTHON3", [["Level", "'502'"], ["ClearanceType", "'People'"]])
             arc_output(f"{feature_name} Level & ClearanceType Calculated")
-        arcpy.CalculateField_management(feature, "DateTime", date_sql_p, "PYTHON3")
+        arcpy.CalculateField_management(feature, "DateTime", date_sql_string, "PYTHON3")
         arc_output(f"{feature_name} DateTime Calculated")
-        arcpy.CalculateField_management(feature, "Mine", "'" + mine_p + "'", "PYTHON3")
+        arcpy.CalculateField_management(feature, "Mine", "'" + elevation_datum_input + "'", "PYTHON3")
         arc_output(f"{feature_name} Mine Calculated")
-        arcpy.CalculateField_management(feature, "BlastClearId", "'" + blast_clear_id_p + "'", "PYTHON3")
+        arcpy.CalculateField_management(feature, "BlastClearId", "'" + blast_clearance_id + "'", "PYTHON3")
         arc_output(f"{feature_name} BlastClearId Calculated")
     arc_output(f"Fields Calculated")
 
     # Call the Create CAD Folders function to create folders, export to CAD and copy CAD files
-    create_cad_folders(date_string_p=date_string_p,
-                       user_p=user_p,
-                       blast_id_p=blast_clear_id_p,
-                       mine_p=mine_p,
-                       resources_p=resources_p,
-                       cad_output_p=cad_output_p,
-                       sis_spat_ref_p=sis_spat_ref_p,
-                       block_fc_p=blocks_p,
-                       machine_fc_p=machine_p,
-                       people_fc_p=people_p)
+    create_cad_folders(date_string_p=date_string,
+                       user_p=user,
+                       blast_id_p=blast_clearance_id,
+                       mine_p=elevation_datum_input,
+                       resources_p=resourced_dir,
+                       cad_output_p=cad_output_dir,
+                       sis_spat_ref_p=mine_spatial_reference,
+                       block_fc_p=block_input_feature,
+                       machine_fc_p=equipment_buffer,
+                       people_fc_p=people_buffer)
+
+    # Append to Master Features
+    arc_output("Appending Features")
+    arcpy.Append_management(block_input_feature, master_block_feature, "TEST")
+    arc_output(f"{block_feature_name} appended to {master_block_feature_name}")
+    arcpy.Append_management(equipment_buffer, master_clearance_feature, "TEST")
+    arc_output(f"{equipment_buffer_feature_name} appended to {master_buffer_feature_name}")
+    arcpy.Append_management(people_buffer, master_clearance_feature, "TEST")
+    arc_output(f"{people_buffer_feature_name} appended to {master_buffer_feature_name}")
+    arc_output("Features Appended")
+
+    # Delete Scratch Features
+    arc_output("Deleting Features")
+    arcpy.Delete_management(block_input_feature)
+    arc_output(f"{block_feature_name} Deleted")
+    arcpy.Delete_management(equipment_buffer)
+    arc_output(f"{equipment_buffer_feature_name} Deleted")
+    arcpy.Delete_management(people_buffer)
+    arc_output(f"{people_buffer_feature_name} Deleted")
+    arc_output("Features Deleted")
 
 
 # This features adds a row to the SishenBlasts table to generate a BlastID
@@ -403,17 +429,21 @@ query_date_string = datetime.today().strftime("%Y-%m-%d %H:%M:%S")
 arc_sql_date = "'" + arc_date_string + "'"
 
 # Spatial Reference Variable
-spat_ref = "PROJCS['Cape_Lo23_Sishen',GEOGCS['GCS_Cape',DATUM['D_Cape',SPHEROID['Clarke_1880_Arc',6378249.145," \
-           "293.466307656]],PRIMEM['Greenwich',0.0],UNIT['Degree',0.0174532925199433]],PROJECTION[" \
-           "'Transverse_Mercator'],PARAMETER['False_Easting',50000.0],PARAMETER['False_Northing',3000000.0]," \
-           "PARAMETER['Central_Meridian',23.0],PARAMETER['Scale_Factor',1.0],PARAMETER['Latitude_Of_Origin',0.0]," \
-           "UNIT['Meter',1.0]];-5573300 -7002000 10000;-100000 10000;-100000 10000;0.001;0.001;0.001;IsHighPrecision "
+sishen_local_spatial_reference = "PROJCS['Cape_Lo23_Sishen',GEOGCS['GCS_Cape',DATUM['D_Cape'," \
+                                 "SPHEROID['Clarke_1880_Arc',6378249.145,293.466307656]],PRIMEM['Greenwich',0.0]," \
+                                 "UNIT['Degree',0.0174532925199433]],PROJECTION['Transverse_Mercator']," \
+                                 "PARAMETER['False_Easting',50000.0],PARAMETER['False_Northing',3000000.0]," \
+                                 "PARAMETER['Central_Meridian',23.0],PARAMETER['Scale_Factor',1.0]," \
+                                 "PARAMETER['Latitude_Of_Origin',0.0],UNIT['Meter',1.0]];-5573300 -7002000 10000;" \
+                                 "-100000 10000;-100000 10000;0.001;0.001;0.001;IsHighPrecision "
 
-block_spat_ref = "PROJCS['Cape_Lo23_Sishen_Blocks',GEOGCS['GCS_Cape',DATUM['D_Cape',SPHEROID['Clarke_1880_Arc'," \
-                 "6378249.145,293.466307656]],PRIMEM['Greenwich',0.0],UNIT['Degree',0.0174532925199433]]," \
-                 "PROJECTION['Transverse_Mercator'],PARAMETER['False_Easting',-50000.0]," \
-                 "PARAMETER['False_Northing',-3000000.0],PARAMETER['Central_Meridian',23.0]," \
-                 "PARAMETER['Scale_Factor',-1.0],PARAMETER['Latitude_Of_Origin',0.0],UNIT['Meter',1.0]]"
+block_inventory_db_spatial_reference = "PROJCS['Cape_Lo23_Sishen_Blocks',GEOGCS['GCS_Cape'," \
+                                       "DATUM['D_Cape',SPHEROID['Clarke_1880_Arc',6378249.145,293.466307656]]," \
+                                       "PRIMEM['Greenwich',0.0],UNIT['Degree',0.0174532925199433]]," \
+                                       "PROJECTION['Transverse_Mercator'],PARAMETER['False_Easting',-50000.0]," \
+                                       "PARAMETER['False_Northing',-3000000.0],PARAMETER['Central_Meridian',23.0]," \
+                                       "PARAMETER['Scale_Factor',-1.0],PARAMETER['Latitude_Of_Origin',0.0]," \
+                                       "UNIT['Meter',1.0]]"
 
 # User Input Parameters
 block_input = arcpy.GetParameter(0)
@@ -431,6 +461,8 @@ people_clear_scratch_fc = os.path.join(scratch_gdb, "TEMP_PEOPLE")
 people_clear_single_scratch_fc = os.path.join(scratch_gdb, "TEMP_PEOPLE_SINGLE")
 sis_blasts_table = os.path.join(working_gdb, "SishenBlasts")
 temp_block_fc = os.path.join(scratch_gdb, "TEMP_BLOCKS")
+master_blocks_fc = os.path.join(working_gdb, "SisBlastBlocks")
+master_clearance_fc = os.path.join(working_gdb, "SisBlastClearanceZones")
 
 # Check whether blocks exist in the Blocks table
 blocks_check(block_list_p=block_input,
@@ -445,7 +477,7 @@ block_select_array = make_block_array(block_search, sde_block_path)
 block_shape_search = block_status_sql_query(block_select_array)
 
 selected_blocks = make_block_status_query_layer(sde_p=block_inventory_sde,
-                                                block_spat_ref_p=block_spat_ref,
+                                                block_spat_ref_p=block_inventory_db_spatial_reference,
                                                 sde_block_query_p=block_shape_search)
 
 # Find Elevation Datum Name (Mine Name, e.g. North Mine / South Mine / Lylyveld South)
@@ -457,25 +489,27 @@ current_blast_id, current_user = get_blast_id(blast_table_p=sis_blasts_table,
                                               date_p=query_date_string)
 
 # Create the buffer & blocks features
-machine_buff, people_buff, block_selection = find_clearance_zones(spatref_p=block_spat_ref,
-                                                                  blocks_p=selected_blocks,
-                                                                  scratch_machine_p=machine_clear_scratch_fc,
-                                                                  scratch_people_p=people_clear_scratch_fc,
-                                                                  scratch_gdb_p=scratch_gdb,
-                                                                  machine_rad_p=machine_radius_input,
-                                                                  people_rad_p=people_radius_input,
-                                                                  machine_single_p=machine_clear_single_scratch_fc,
-                                                                  people_single_p=people_clear_single_scratch_fc)
+machine_buff, people_buff, temp_block_feature = find_clearance_zones(spatref_p=block_inventory_db_spatial_reference,
+                                                                     blocks_p=selected_blocks,
+                                                                     scratch_machine_p=machine_clear_scratch_fc,
+                                                                     scratch_people_p=people_clear_scratch_fc,
+                                                                     scratch_gdb_p=scratch_gdb,
+                                                                     machine_rad_p=machine_radius_input,
+                                                                     people_rad_p=people_radius_input,
+                                                                     machine_single_p=machine_clear_single_scratch_fc,
+                                                                     people_single_p=people_clear_single_scratch_fc)
 
 # Perform some data management tasks, append and export to CAD
-data_management(blocks_p=block_selection,
-                machine_p=machine_buff,
-                people_p=people_buff,
-                date_sql_p=arc_sql_date,
-                mine_p=mine_input,
-                blast_clear_id_p=current_blast_id,
-                date_string_p=date_string,
-                user_p=current_user,
-                resources_p=resources_dir,
-                cad_output_p=cad_output_base_dir,
-                sis_spat_ref_p=spat_ref)
+data_management(block_input_feature=temp_block_feature,
+                equipment_buffer=machine_buff,
+                people_buffer=people_buff,
+                date_sql_string=arc_sql_date,
+                elevation_datum_input=mine_input,
+                blast_clearance_id=current_blast_id,
+                date_string=date_string,
+                user=current_user,
+                resourced_dir=resources_dir,
+                cad_output_dir=cad_output_base_dir,
+                mine_spatial_reference=sishen_local_spatial_reference,
+                master_block_feature=master_blocks_fc,
+                master_clearance_feature=master_clearance_fc)
