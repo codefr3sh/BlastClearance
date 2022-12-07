@@ -6,15 +6,12 @@ from datetime import datetime
 from pathlib import Path
 
 
-# TODO: Add functionality for file input (txt file, one block on each line)
-# TODO: Choose whether file or list input is used
-# TODO: Sanitize inputs (remove "/" if any)
+# TODO: Copy Text input file to relevant blast folder
+# TODO: Create text file if block input list was used and copy to relevant blast folder
 # TODO: Separate script and tools for when additional features such as misfires or toes must be added
 # TODO: Test blast clearance ID as hosted table
 # TODO: Investigate hosted feature service (will probably cause delays)
 # TODO: Manage Road Clip
-# TODO: Remove redundant functions
-# TODO: Cleanup Test Printouts
 # TODO: Better use of variables and better parameter names
 # TODO: Read spatial references from files
 # TODO: Temp Features - Add user name to feature name
@@ -417,6 +414,19 @@ def calc_block_num(block_array, block_temp_feature):
     arc_output("Block Numbers Calculated")
 
 
+# This function reads a text file with block numbers and adds the numbers to a list.
+# Return the list of block numbers
+def block_file_to_list(blocks_file):
+    with open(blocks_file) as file:
+        block_list = [line.rstrip() for line in file]
+
+    for block in block_list:
+        block.replace("/", "")
+    # TODO: Test Printout
+    arc_output(block_list)
+    return block_list
+
+
 # Main Program
 
 # Workspace Variables
@@ -454,9 +464,18 @@ block_inventory_db_spatial_reference = "PROJCS['Cape_Lo23_Sishen_Blocks',GEOGCS[
                                        "UNIT['Meter',1.0]]"
 
 # User Input Parameters
-block_input = arcpy.GetParameter(0)
-machine_radius_input = arcpy.GetParameterAsText(1)
-people_radius_input = arcpy.GetParameterAsText(2)
+
+use_file = arcpy.GetParameter(0)
+block_list = arcpy.GetParameter(1)
+block_file = arcpy.GetParameterAsText(2)
+machine_radius_input = arcpy.GetParameterAsText(3)
+people_radius_input = arcpy.GetParameterAsText(4)
+
+if use_file:
+    block_input = block_file_to_list(block_file)
+else:
+    block_input = block_list
+
 
 # Derived Variables
 sde_block_status_path = os.path.join(block_inventory_sde, "BlockInventory.dbo.BlockStatus")
