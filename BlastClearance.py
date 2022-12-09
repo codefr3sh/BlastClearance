@@ -6,6 +6,8 @@ from datetime import datetime
 from pathlib import Path
 
 
+# TODO: Export CAD files to survey/dgn to accommodate surveyors
+# TODO: Blast export files to survey/dgn to accommodate surveyors
 # TODO: Copy Text input file to relevant blast folder
 # TODO: Create text file if block input list was used and copy to relevant blast folder
 # TODO: Separate script and tools for when additional features such as misfires or toes must be added
@@ -28,39 +30,39 @@ def new_path():
 
 
 # This function provides a standard message output to users using ArcGIS Pro
-def arc_output(message_p):
+def arc_output(message):
     timestamp = datetime.now().strftime("%H:%M:%S")
-    arcpy.AddMessage(f"---{timestamp}: {message_p} ---")
+    arcpy.AddMessage(f"---{timestamp}: {message} ---")
 
 
 # This function is used to join two tabled
 # Return the joined feature layer
 # THIS FUNCTION IS NOT USED IN THE CURRENT ITERATION OF THE SCRIPT
-def join_features(table_1, table_2, field_string_p):
-    joined_table = arcpy.AddJoin_management(table_1, field_string_p, table_2, field_string_p, "KEEP_COMMON")
-    arc_output(f"{table_1.split('dbo.')[-1]} and {table_2.split('dbo.')[-1]} Tables joined using {field_string_p}")
+def join_features(table_1, table_2, join_field):
+    joined_table = arcpy.AddJoin_management(table_1, join_field, table_2, join_field, "KEEP_COMMON")
+    arc_output(f"{table_1.split('dbo.')[-1]} and {table_2.split('dbo.')[-1]} Tables joined using {join_field}")
 
     return joined_table
 
 
 # This function is used to check whether the blocks exist in the BlockInventory database
-def blocks_check(block_list_p, sde_table_p, search_field_p):
+def blocks_check(block_list_input, sde_block_table, search_field_name):
     arc_output("Checking if blocks exist in the Database...")
     # Empty error list to which all non-existent block numbers are added
     error_list = []
-    field = [search_field_p]
+    field = [search_field_name]
 
     # Loop through the blocks as provided by the user
-    for block in block_list_p:
+    for block in block_list_input:
         # Search criteria
-        where_clause = f"{search_field_p} = '{block}'"
+        where_clause = f"{search_field_name} = '{block}'"
         # Initiate a Search Cursor
-        with arcpy.da.SearchCursor(sde_table_p, field, where_clause) as cur:
+        with arcpy.da.SearchCursor(sde_block_table, field, where_clause) as row:
             # Provide output if the block is found in the table
             try:
-                cur.next()
+                row.next()
                 arc_output(f"Block {block} Found")
-            # Add block number to the error list if it is not found in the table
+            # Add block number to the error list if it is not found in the table and provide output to the user
             except:
                 error_list.append(block)
                 arc_output(f"Block {block} NOT Found")
@@ -68,6 +70,7 @@ def blocks_check(block_list_p, sde_table_p, search_field_p):
 
     # If there is any data in the error list, arcgis pro must provide the user with an error message
     # containing the block numbers which must be checked.
+    # Different messages are displayed depending on whether one error or more than one error was found
     if len(error_list) > 0:
         if len(error_list) == 1:
             arcpy.AddError(f"Block {error_list[0]} does not exist.\nPlease contact the Blasting Team.")
@@ -82,18 +85,18 @@ def blocks_check(block_list_p, sde_table_p, search_field_p):
 
 # This function creates the SQL string to select blocks
 # Return the Search String
-def block_search_sql_query(block_list_p, block_number_p):
+def block_search_sql_query(block_list_input, block_number_field):
     search_string = ""
-    if len(block_list_p) == 1:
-        search_string += f"{block_number_p} = '{block_list_p[0]}'"
+    if len(block_list_input) == 1:
+        search_string += f"{block_number_field} = '{block_list_input[0]}'"
     else:
-        for count, block in enumerate(block_list_p):
+        for count, block in enumerate(block_list_input):
             if count == 0:
-                search_string += f"{block_number_p} = '{block}' OR "
-            elif count == len(block_list_p) - 1:
-                search_string += f"{block_number_p} = '{block}'"
+                search_string += f"{block_number_field} = '{block}' OR "
+            elif count == len(block_list_input) - 1:
+                search_string += f"{block_number_field} = '{block}'"
             else:
-                search_string += f"{block_number_p} = '{block}' OR "
+                search_string += f"{block_number_field} = '{block}' OR "
     return search_string
 
 
@@ -427,19 +430,35 @@ def block_file_to_list(blocks_file):
     return block_list
 
 
+# This function is used to select roads within 2000 meters of the blocks
+def affected_roads(all_roads, block_input, scratch_roads_fc):
+    arc_output("Selecting Roads")
+
+    road_select = arcpy.SelectLayerByLocation_management(all_roads, "WITHIN_A_DISTANCE", block_input,
+                                                         "2000 Meters", "NEW_SELECTION", "NOT_INVERT")
+    arc_output("Roads Selected")
+
+    arc_output("Creating Temp Road Feature")
+    road_feature = arcpy.CopyFeatures_management(road_select, scratch_roads_fc)
+    arc_output("Temp Road Feature Created")
+
+    return road_feature
+
 # Main Program
 
 # Workspace Variables
 workspace = new_path()
 arcpy.env.workspace = workspace
-arcpy.env.overwriteOutput = True  # TODO: Change to False after testing
-blast_clearance_directory = r"S:\Mining\MRM\SURVEY\DME\NEWGME\Blasting Notification\BlastClearancePro"
-database_dir = os.path.join(blast_clearance_directory, "Databases")
-resources_dir = os.path.join(blast_clearance_directory, "Resources")
-cad_output_base_dir = os.path.join(blast_clearance_directory, "CAD_Output")
+arcpy.env.overwriteOutput = True
+execution_directory = r"S:\Mining\MRM\SURVEY\DME\NEWGME\Blasting Notification\BlastClearancePro"
+portal_backup_directory = r"S:\Mining\MRM\SURVEY\DME\NEWGME\ARC\PORTAL_BACKUPS"
+cad_output_dir = r"S:\Mining\MRM\SURVEY\CurrentData\DGN\Blasting Notification"
+database_dir = os.path.join(execution_directory, "Databases")
+resources_dir = os.path.join(execution_directory, "Resources")
 working_gdb = os.path.join(database_dir, 'BlastClearance.gdb')
 scratch_gdb = os.path.join(workspace, 'scratch.gdb')
 archive_gdb = os.path.join(workspace, 'Archive.gdb')
+portal_backup_geodatabase = os.path.join(portal_backup_directory, "PortalBackups.gdb")
 block_inventory_sde = r"S:\Mining\MRM\SURVEY\DME\NEWGME\ARC\SDE_CONNECTIONS\BlockInventory.sde"
 date_string = datetime.today().strftime('%Y%m%d%H%M%S')
 arc_date_string = datetime.today().strftime('%m/%d/%Y %I:%M:%S %p')
@@ -476,7 +495,6 @@ if use_file:
 else:
     block_input = block_list
 
-
 # Derived Variables
 sde_block_status_path = os.path.join(block_inventory_sde, "BlockInventory.dbo.BlockStatus")
 sde_level_path = os.path.join(block_inventory_sde, "BlockInventory.dbo.Level")
@@ -490,14 +508,16 @@ sis_blasts_table = os.path.join(working_gdb, "SishenBlasts")
 temp_block_fc = os.path.join(scratch_gdb, "TEMP_BLOCKS")
 master_blocks_fc = os.path.join(working_gdb, "SisBlastBlocks")
 master_clearance_fc = os.path.join(working_gdb, "SisBlastClearanceZones")
+all_roads_fc = os.path.join(portal_backup_geodatabase, "Road_Edge")
+road_scratch_fc = os.path.join(scratch_gdb, "TEMP_ROADS")
 
 # Check whether blocks exist in the Blocks table
-blocks_check(block_list_p=block_input,
-             sde_table_p=sde_block_path,
-             search_field_p="Number")
+blocks_check(block_list_input=block_input,
+             sde_block_table=sde_block_path,
+             search_field_name="Number")
 
-block_search = block_search_sql_query(block_list_p=block_input,
-                                      block_number_p="Number")
+block_search = block_search_sql_query(block_list_input=block_input,
+                                      block_number_field="Number")
 
 block_select_array = make_block_array(block_search, sde_block_path)
 
@@ -526,6 +546,10 @@ machine_buff, people_buff, temp_block_feature = find_clearance_zones(spatref_p=b
                                                                      machine_single_p=machine_clear_single_scratch_fc,
                                                                      people_single_p=people_clear_single_scratch_fc)
 
+roads = affected_roads(all_roads=all_roads_fc,
+                       block_input=temp_block_feature,
+                       scratch_roads_fc=road_scratch_fc)
+
 # Perform some data management tasks, append and export to CAD
 data_management(block_input_feature=temp_block_feature,
                 equipment_buffer=machine_buff,
@@ -536,7 +560,7 @@ data_management(block_input_feature=temp_block_feature,
                 date_string=date_string,
                 user=current_user,
                 resourced_dir=resources_dir,
-                cad_output_dir=cad_output_base_dir,
+                cad_output_dir=cad_output_dir,
                 mine_spatial_reference=sishen_local_spatial_reference,
                 master_block_feature=master_blocks_fc,
                 master_clearance_feature=master_clearance_fc,
