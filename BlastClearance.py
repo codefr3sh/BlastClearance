@@ -8,12 +8,12 @@ from pathlib import Path
 
 # TODO: Export CAD files to survey/dgn to accommodate surveyors
 # TODO: Blast export files to survey/dgn to accommodate surveyors
+# TODO: Move file geodatabase where masters area appended to survey/dgn to accommodate surveyors
 # TODO: Copy Text input file to relevant blast folder
 # TODO: Create text file if block input list was used and copy to relevant blast folder
 # TODO: Separate script and tools for when additional features such as misfires or toes must be added
 # TODO: Test blast clearance ID as hosted table
 # TODO: Investigate hosted feature service (will probably cause delays)
-# TODO: Manage Road Clip
 # TODO: Better use of variables and better parameter names
 # TODO: Read spatial references from files
 # TODO: Temp Features - Add user name to feature name
@@ -162,19 +162,21 @@ def find_clearance_zones(spatref_p, blocks_p, scratch_machine_p, scratch_people_
 
 # This function is used for data management purposes
 # TODO: Elaborate
-def data_management(block_input_feature, equipment_buffer, people_buffer, date_sql_string, elevation_datum_input,
+def data_management(block_input_feature, equipment_buffer, people_buffer, roads, date_sql_string, elevation_datum_input,
                     blast_clearance_id, date_string, user, resourced_dir, cad_output_dir, mine_spatial_reference,
-                    master_block_feature, master_clearance_feature, block_array):
+                    master_block_feature, master_clearance_feature, block_array, roads_master_fc):
     # Create lists to enable iteration for adding and calculating fields
     clearance_list = [equipment_buffer, people_buffer]
-    feature_list = [block_input_feature, equipment_buffer, people_buffer]
+    feature_list = [block_input_feature, equipment_buffer, people_buffer, roads]
 
     # Create string to display useful output to user (block feature name)
     block_feature_name = str(block_input_feature).split("\\")[-1]
     equipment_buffer_feature_name = str(equipment_buffer).split("\\")[-1]
     people_buffer_feature_name = str(people_buffer).split("\\")[-1]
+    roads_feature_name = str(roads).split("\\")[-1]
     master_block_feature_name = str(master_block_feature).split("\\")[-1]
     master_buffer_feature_name = str(master_clearance_feature).split("\\")[-1]
+    master_roads_feature_name = str(master_roads_fc).split("\\")[-1]
 
     # Loop through all features and add fields
     for feature in clearance_list:
@@ -205,6 +207,8 @@ def data_management(block_input_feature, equipment_buffer, people_buffer, date_s
         elif feature == people_buffer:
             arcpy.CalculateFields_management(feature, "PYTHON3", [["Level", "'502'"], ["ClearanceType", "'People'"]])
             arc_output(f"{feature_name} Level & ClearanceType Calculated")
+        elif feature == roads:
+            arcpy.CalculateField_management(feature, "Level", "'503'", "PYTHON3")
         arcpy.CalculateField_management(feature, "DateTime", date_sql_string, "PYTHON3")
         arc_output(f"{feature_name} DateTime Calculated")
         arcpy.CalculateField_management(feature, "Mine", "'" + elevation_datum_input + "'", "PYTHON3")
@@ -223,7 +227,8 @@ def data_management(block_input_feature, equipment_buffer, people_buffer, date_s
                        sis_spat_ref_p=mine_spatial_reference,
                        block_fc_p=block_input_feature,
                        machine_fc_p=equipment_buffer,
-                       people_fc_p=people_buffer)
+                       people_fc_p=people_buffer,
+                       roads_fc_p=roads)
 
     # Append to Master Features
     arc_output("Appending Features")
@@ -234,6 +239,9 @@ def data_management(block_input_feature, equipment_buffer, people_buffer, date_s
     arcpy.Append_management(people_buffer, master_clearance_feature, "TEST")
     arc_output(f"{people_buffer_feature_name} appended to {master_buffer_feature_name}")
     arc_output("Features Appended")
+    arcpy.Append_management(roads, roads_master_fc, "TEST")
+    arc_output(f"{roads_feature_name} appended to {master_roads_feature_name}")
+    arc_output("Features Appended")
 
     # Delete Scratch Features
     arc_output("Deleting Features")
@@ -243,6 +251,8 @@ def data_management(block_input_feature, equipment_buffer, people_buffer, date_s
     arc_output(f"{equipment_buffer_feature_name} Deleted")
     arcpy.Delete_management(people_buffer)
     arc_output(f"{people_buffer_feature_name} Deleted")
+    arcpy.Delete_management(roads)
+    arc_output(f"{roads_feature_name} Deleted")
     arc_output("Features Deleted")
 
 
@@ -266,7 +276,7 @@ def get_blast_id(blast_table_p, mine_p, date_p):
 
 # This function is used to create a folder in the correct subfolder where the CAD output of the blast will be saved.
 def create_cad_folders(date_string_p, user_p, blast_id_p, mine_p, resources_p, cad_output_p, sis_spat_ref_p,
-                       block_fc_p, machine_fc_p, people_fc_p):
+                       block_fc_p, machine_fc_p, people_fc_p, roads_fc_p):
     year = date_string_p[:4]
     month_num = date_string_p[4:6]
     reference_path = os.path.join(resources_p, "ReferenceFiles")
@@ -299,7 +309,7 @@ def create_cad_folders(date_string_p, user_p, blast_id_p, mine_p, resources_p, c
 
     # Export Blocks and Clearance Zones to relevant CAD file
     arc_output("Exporting Features to CAD")
-    features_to_export = [block_fc_p, machine_fc_p, people_fc_p]
+    features_to_export = [block_fc_p, machine_fc_p, people_fc_p, roads_fc_p]
     with arcpy.EnvManager(outputCoordinateSystem=sis_spat_ref_p):
         arcpy.ExportCAD_conversion(in_features=features_to_export,
                                    Output_Type="DGN_V8",
@@ -508,6 +518,7 @@ sis_blasts_table = os.path.join(working_gdb, "SishenBlasts")
 temp_block_fc = os.path.join(scratch_gdb, "TEMP_BLOCKS")
 master_blocks_fc = os.path.join(working_gdb, "SisBlastBlocks")
 master_clearance_fc = os.path.join(working_gdb, "SisBlastClearanceZones")
+master_roads_fc = os.path.join(working_gdb, "SisBlastRoads")
 all_roads_fc = os.path.join(portal_backup_geodatabase, "Road_Edge")
 road_scratch_fc = os.path.join(scratch_gdb, "TEMP_ROADS")
 
@@ -554,6 +565,7 @@ roads = affected_roads(all_roads=all_roads_fc,
 data_management(block_input_feature=temp_block_feature,
                 equipment_buffer=machine_buff,
                 people_buffer=people_buff,
+                roads=roads,
                 date_sql_string=arc_sql_date,
                 elevation_datum_input=mine_input,
                 blast_clearance_id=current_blast_id,
@@ -564,4 +576,5 @@ data_management(block_input_feature=temp_block_feature,
                 mine_spatial_reference=sishen_local_spatial_reference,
                 master_block_feature=master_blocks_fc,
                 master_clearance_feature=master_clearance_fc,
-                block_array=block_select_array)
+                block_array=block_select_array,
+                roads_master_fc=master_roads_fc)
